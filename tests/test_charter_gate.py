@@ -172,3 +172,18 @@ class TestExperimentalPremises:
         thin_file = (ROOT / "tarrasque/api/encounters.py").read_text()
         assert god_file.count("random.") >= 3
         assert "random." not in thin_file
+
+
+class TestLegacyReach:
+    def test_flags_a_call_through_the_conventional_alias(self):
+        assert rules("total = tables.advantage(3)\n") == ["legacy.frozen"]
+
+    def test_the_alias_is_allowed_inside_the_frozen_module(self):
+        assert rules("x = tables.LOOT\n", "tarrasque/legacy/tables.py") == []
+
+
+class TestBulkAuthority:
+    def test_flags_a_list_of_combatants_taken_from_the_body(self):
+        assert rules('ids = body.get("combatants") or []\n') == [
+            "authority.session-derived"
+        ]

@@ -47,6 +47,8 @@ OUTCOME_KEY = re.compile(r"^(?:total|result|score|roll|outcome)$")
 ASSERTED_IDENTITY = {
     "character_id", "actor_id", "acting_as", "as_character",
     "user_id", "owner_user_id", "table_id", "combatant_id",
+    # the plural forms are the same mistake made in bulk
+    "characters", "combatants", "actors", "users", "targets", "on_behalf_of",
 }
 
 #: Names that hold caller-supplied input.
@@ -57,6 +59,11 @@ LOG_MUTATION = re.compile(
     r"\b(?:UPDATE\s+session_log|DELETE\s+FROM\s+session_log)\b", re.I
 )
 LOG_MUTATORS = {"update_log_payload", "delete_log_from"}
+
+#: How the frozen 2021 module is conventionally bound in this repository.
+#: Importing it is one finding; reaching through the alias is another, because
+#: the import usually predates the change and the call is what this run added.
+LEGACY_ALIASES = {"tables", "legacy"}
 
 
 def _exempt(lines: list[str], node: ast.AST, rule: str) -> bool:
@@ -148,6 +155,15 @@ def check_source(filename: str, source: str) -> list[dict[str, Any]]:
                     problems.append(_problem(
                         filename, node, "legacy.frozen",
                         "imports tarrasque.legacy; the 2021 tables are frozen"))
+
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            if node.value.id in LEGACY_ALIASES and not _exempt(
+                lines, node, "legacy"
+            ):
+                problems.append(_problem(
+                    filename, node, "legacy.frozen",
+                    f"{node.value.id}.{node.attr}() reaches into the frozen 2021 "
+                    "tables, which roll unseeded and return bare numbers"))
 
         # -- roll.provenance --------------------------------------------
         if isinstance(node, ast.Dict):
