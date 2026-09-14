@@ -46,10 +46,10 @@ test:  ## run the test suite (pytest, or the bundled runner if absent)
 
 lint:  ## ruff over the package, or a bundled style check if absent
 	@if command -v ruff >/dev/null 2>&1; then \
-	   ruff check $(PKG) tests charter bin; \
+	   ruff check $(PKG) tests tools bin; \
 	 else \
 	   echo "  ruff not found — compileall only"; \
-	   $(PYTHON) -m compileall -q $(PKG) tests charter >/dev/null; \
+	   $(PYTHON) -m compileall -q $(PKG) tests tools >/dev/null; \
 	 fi
 
 types:  ## mypy --strict over the package (skipped when mypy is absent)
@@ -63,11 +63,11 @@ gate:  ## the charter's decidable rules over the changed files  (< 1s, stdlib)
 	@if [ -z "$(CHANGED)" ]; then \
 	   echo "  nothing changed"; \
 	 else \
-	   $(PYTHON) charter/check.py $(CHANGED); \
+	   $(PYTHON) tools/charter_check.py $(CHANGED); \
 	 fi
 
 gate-all:  ## the same rules over the whole tree — shows the seed's own debt
-	@$(PYTHON) charter/check.py $$(find $(PKG) -name '*.py') || true
+	@$(PYTHON) tools/charter_check.py $$(find $(PKG) -name '*.py') || true
 
 verify:  ## lint + types + tests + gate. The one command CLAUDE.md names.
 	@$(MAKE) --no-print-directory lint

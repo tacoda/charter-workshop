@@ -153,7 +153,7 @@ In `sluice` that lands as:
 - a **command** (`/slu-credit`) — a rehearsed prompt with the ticket and the diff
   stapled to it, `disable-model-invocation: true`, so it costs nothing standing
 - a **skill** (`add-endpoint`) — the sequence a rule cannot hold, with the
-  deterministic `charter/check.py` bundled beside it as a script, not a server
+  deterministic `tools/charter_check.py` bundled beside it as a script, not a server
 - a **sub-agent** (`charter-auditor`) — a declared grant that cannot write, and a
   stated return shape
 - a **grant** (`.claude/settings.json`) — the allowlist points at `make` targets,
@@ -161,7 +161,7 @@ In `sluice` that lands as:
 - an **MCP declaration** (`.mcp.json`) — written, then *deleted* in the lab, as the
   worked example of `the server that should have been a script`
 
-**Lever 4 mounts one predicate twice.** `charter/check.py` takes
+**Lever 4 mounts one predicate twice.** `tools/charter_check.py` takes
 `{files: [{filename, source}]}` and never opens a file — forty lines of `ast`,
 no imports from the repo. That shape is why the same implementation runs as a
 `PreToolUse` hook, as a `make gate` target, as a bundled skill script, and later

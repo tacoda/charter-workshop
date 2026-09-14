@@ -82,7 +82,7 @@ touches, so a run can be scored against the ticket it was actually given.
     make compare                          # the matrix
     make reference                        # the runs shipped with the repo
 
-Nine checks. Eight are decidable and run in `charter/check.py`. The ninth is
+Nine checks. Eight are decidable and run in `tools/charter_check.py`. The ninth is
 not, and prints `?` until a reviewer sub-agent fills it in. The hole in the
 scorecard is the point.
 

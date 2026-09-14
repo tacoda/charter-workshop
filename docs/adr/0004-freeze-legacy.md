@@ -15,7 +15,7 @@ behaviour. Several of those transcripts are cited in the community wiki.
 ## Decision
 
 The module is frozen. It is excluded from `mypy` and from the `ruff` rule set,
-and `charter/check.py` does not govern it.
+and `tools/charter_check.py` does not govern it.
 
 New code does not import it. New behaviour goes in `tarrasque/domain/`.
 

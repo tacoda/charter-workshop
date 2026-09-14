@@ -22,7 +22,7 @@ import `random` is `tarrasque/domain/rng.py`.
 rolls and we could not answer. Eleven sessions of logs turned out to be
 unverifiable. The engine had been right; we had no way to show it.
 
-*Enforced by:* `charter/check.py`, rule `dice.seeded`. Escape:
+*Enforced by:* `tools/charter_check.py`, rule `dice.seeded`. Escape:
 `# seeded-gate: allow - <reason>` on the line.
 
 *Traces to:* a log you cannot replay is a transcript, not evidence.
@@ -41,7 +41,7 @@ assemble a response body with a bare `total`, `score`, or `result` in it.
 Exception: a field that is a *sum* of several rolls may be bare if each
 contributing roll is also serialized in the same payload.
 
-*Enforced by:* `charter/check.py`, rule `roll.provenance`.
+*Enforced by:* `tools/charter_check.py`, rule `roll.provenance`.
 
 *Traces to:* a number with no receipt is an assertion.
 

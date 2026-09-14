@@ -38,7 +38,7 @@ ESCAPE = re.compile(
 RNG_MODULE = "tarrasque/domain/rng.py"
 
 #: Paths the charter does not govern. Frozen legacy, tests, and this file.
-OUT_OF_SCOPE = ("tarrasque/legacy/", "tests/", "charter/", "levers/")
+OUT_OF_SCOPE = ("tarrasque/legacy/", "tests/", "tools/", "levers/", "bin/")
 
 #: Keys that name an outcome and therefore need provenance beside them.
 OUTCOME_KEY = re.compile(r"^(?:total|result|score|roll|outcome)$")
@@ -258,7 +258,7 @@ def main(argv: list[str]) -> int:
     print(render(verdict["problems"]))
     print(
         f"\n{len(verdict['problems'])} finding(s). Each line names its escape; "
-        "see charter/check.py."
+        "see tools/charter_check.py."
     )
     return 1
 

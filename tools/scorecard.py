@@ -22,7 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from charter.check import check  # noqa: E402
+from tools.charter_check import check  # noqa: E402
 
 DECIDABLE = [
     ("C1", "scope.allowed-paths", "the diff stayed inside the ticket"),
@@ -87,7 +87,42 @@ def out_of_scope(paths: list[str], globs: list[str]) -> list[str]:
     ]
 
 
+HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,(?P<count>\d+))? @@")
+
+
+def added_lines() -> dict[str, set[int]]:
+    """Line numbers this run *added*, per file.
+
+    A run inherits the file it appends to. Scoring the whole file would charge
+    this run for the repository's existing debt, which flatters every lever
+    equally and measures nothing. So only added lines count. An untracked file
+    is entirely new, so all of it counts.
+    """
+    added: dict[str, set[int]] = {}
+    current = ""
+    cursor = 0
+    for line in git("diff", "-U0", "HEAD").splitlines():
+        if line.startswith("+++ b/"):
+            current = line[6:]
+            added.setdefault(current, set())
+        elif (found := HUNK.match(line)) is not None:
+            cursor = int(found.group("start"))
+        elif line.startswith("+") and not line.startswith("+++"):
+            added.setdefault(current, set()).add(cursor)
+            cursor += 1
+    for path in git("ls-files", "--others", "--exclude-standard").split():
+        full = ROOT / path
+        if full.is_file():
+            try:
+                count = len(full.read_text(encoding="utf-8").splitlines())
+            except (OSError, UnicodeDecodeError):
+                continue
+            added[path] = set(range(1, count + 2))
+    return added
+
+
 def predicate_findings(paths: list[str]) -> list[dict]:
+    """Run the predicate, then keep only findings on lines this run added."""
     files = []
     for path in paths:
         full = ROOT / path
@@ -95,7 +130,12 @@ def predicate_findings(paths: list[str]) -> list[dict]:
             files.append(
                 {"filename": path, "source": full.read_text(encoding="utf-8")}
             )
-    return check({"files": files})["problems"]
+    touched = added_lines()
+    return [
+        item
+        for item in check({"files": files})["problems"]
+        if item["line"] in touched.get(item["file"], set())
+    ]
 
 
 def edited_assertions() -> list[str]:

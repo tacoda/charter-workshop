@@ -18,7 +18,7 @@ is being addressed; the session decides *whether* this caller may address it.
 player's character, on purpose, to end an argument. Nothing refused it and
 nothing in the log distinguished it from a legitimate roll.
 
-*Enforced by:* `charter/check.py`, rule `authority.session-derived` — which
+*Enforced by:* `tools/charter_check.py`, rule `authority.session-derived` — which
 catches the *shape* of the mistake, not the mistake. See below.
 
 ## Golden rules

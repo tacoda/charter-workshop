@@ -18,7 +18,7 @@ endpoint to correct a damage total, then the party disputed the outcome and
 the log showed only the corrected number. There was no way to tell what had
 been changed or by whom.
 
-*Enforced by:* `charter/check.py`, rule `log.append-only`. Escape:
+*Enforced by:* `tools/charter_check.py`, rule `log.append-only`. Escape:
 `# log-gate: allow - <reason>`.
 
 *Traces to:* history that can be edited is not history.

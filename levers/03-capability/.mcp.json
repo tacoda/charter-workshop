@@ -11,7 +11,7 @@
   "mcpServers": {
     "charter": {
       "command": "python3",
-      "args": ["charter/mcp_server.py"],
+      "args": ["tools/charter_mcp.py"],
       "$note": "one tool: check_files(files) -> {clean, problems}"
     }
   }

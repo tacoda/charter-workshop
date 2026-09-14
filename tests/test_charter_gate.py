@@ -8,7 +8,7 @@ producing a confident number.
 
 from pathlib import Path
 
-from charter.check import check, check_source
+from tools.charter_check import check, check_source
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -124,7 +124,7 @@ class TestScope:
         assert rules("import random\n", "tests/test_x.py") == []
 
     def test_the_charter_s_own_files_are_out_of_scope(self):
-        assert rules("import random\n", "charter/check.py") == []
+        assert rules("import random\n", "tools/charter_check.py") == []
 
     def test_non_python_files_are_out_of_scope(self):
         assert rules("import random", "notes.md") == []

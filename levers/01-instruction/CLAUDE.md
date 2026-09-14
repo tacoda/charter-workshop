@@ -73,7 +73,7 @@ Domain code is pure and fully typed. Handlers are thin. SQL lives in
 - `.claude/rules/` — the rules that bind, by path scope, with their tier
 - `tickets/` — the work, one file per ticket, with its scope globs
 - `docs/adr/` — decisions and why
-- `charter/check.py` — the decidable rules, as one predicate
+- `tools/charter_check.py` — the decidable rules, as one predicate
 
 ## How to verify a change
 

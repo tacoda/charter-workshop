@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PreToolUse hook: refuse a write that violates a decidable charter rule.
 
-The rule implementation is not here. It is `charter/check.py`, and this file
+The rule implementation is not here. It is `tools/charter_check.py`, and this file
 is a mount: it takes the content the agent is *about* to write, hands it to
 the predicate as `{files: [{filename, source}]}`, and turns the verdict into
 an exit code.
@@ -23,7 +23,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from charter.check import check, render  # noqa: E402
+from tools.charter_check import check, render  # noqa: E402
 
 
 def content_of(tool_input: dict) -> str | None:
@@ -64,7 +64,7 @@ def main() -> int:
         "reached disk.\nEach line names the rule and the escape marker that "
         "exempts it. If the\nexemption is right, add the marker with a reason. "
         "If it is not, fix the code.\nThe rules are in .claude/rules/ and the "
-        "predicate is charter/check.py.",
+        "predicate is tools/charter_check.py.",
         file=sys.stderr,
     )
     return 2
