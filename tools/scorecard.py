@@ -47,11 +47,20 @@ def git(*args: str) -> str:
     return result.stdout
 
 
+#: Captured runs are the instrument's own output. A run is not answerable for
+#: the scorecards of the runs before it.
+IGNORED = ("runs/", ".refruns/")
+
+
 def changed_files() -> list[str]:
     """Every path the working tree differs from HEAD on, tracked or not."""
     tracked = git("diff", "--name-only", "HEAD").split()
     untracked = git("ls-files", "--others", "--exclude-standard").split()
-    return sorted(set(tracked) | set(untracked))
+    return sorted(
+        path
+        for path in set(tracked) | set(untracked)
+        if not path.startswith(IGNORED)
+    )
 
 
 def ticket_scope(ticket_id: str) -> list[str]:
@@ -111,6 +120,8 @@ def added_lines() -> dict[str, set[int]]:
             added.setdefault(current, set()).add(cursor)
             cursor += 1
     for path in git("ls-files", "--others", "--exclude-standard").split():
+        if path.startswith(IGNORED):
+            continue
         full = ROOT / path
         if full.is_file():
             try:
@@ -161,7 +172,8 @@ def verify_green() -> tuple[bool, str]:
 
 
 def diff_size() -> dict[str, int]:
-    numbers = git("diff", "--numstat", "HEAD").split()
+    numbers = git("diff", "--numstat", "HEAD", "--", ".",
+                  ":(exclude)runs", ":(exclude).refruns").split()
     added = removed = 0
     for index in range(0, len(numbers) - 2, 3):
         if numbers[index].isdigit():
