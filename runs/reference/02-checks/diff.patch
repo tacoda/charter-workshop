@@ -1,0 +1,744 @@
+diff --git a/runs/reference/00-bare/diff.patch b/runs/reference/00-bare/diff.patch
+new file mode 100644
+index 0000000..64a20a9
+--- /dev/null
++++ b/runs/reference/00-bare/diff.patch
+@@ -0,0 +1,76 @@
++diff --git a/tarrasque/api/handlers.py b/tarrasque/api/handlers.py
++index a6969cc..ebb8ac1 100644
++--- a/tarrasque/api/handlers.py
+++++ b/tarrasque/api/handlers.py
++@@ -288,3 +288,40 @@ def post_group_save(connection, request):
++     )
++     connection.commit()
++     return _json(200, {"encounter_id": encounter_id, "dc": dc, "results": results})
+++
+++
+++def post_group_save(connection, request):
+++    """POST /v1/encounters/:id/saving-throws - resolve a group saving throw."""
+++    try:
+++        body = json.loads(request.get("body") or "{}")
+++    except ValueError:
+++        return _json(400, {"error": "invalid json"})
+++
+++    encounter_id = request.get("path_params", {}).get("encounter_id")
+++    ability = body.get("ability") or "dex"
+++    dc = int(body.get("dc") or 10)
+++
+++    results = []
+++    for combatant_id in body.get("combatants") or []:
+++        row = queries.get_character(connection, combatant_id)
+++        if row is None:
+++            continue
+++        modifier = int(json.loads(row["saves"]).get(ability, 0))
+++        mode = body.get("mode") or "normal"
+++        if mode == "advantage":
+++            total = tables.advantage(modifier)
+++        elif mode == "disadvantage":
+++            total = tables.disadvantage(modifier)
+++        else:
+++            total = random.randint(1, 20) + modifier
+++        results.append({
+++            "combatant_id": combatant_id,
+++            "total": total,
+++            "success": total >= dc,
+++        })
+++
+++    queries.update_log_payload(
+++        connection, encounter_id, 1, {"kind": "group_save", "results": results}
+++    )
+++    connection.commit()
+++    return _json(200, {"encounter_id": encounter_id, "dc": dc, "results": results})
++diff --git a/tarrasque/http.py b/tarrasque/http.py
++index 6cc39b5..d6b9aca 100644
++--- a/tarrasque/http.py
+++++ b/tarrasque/http.py
++@@ -58,6 +58,8 @@ V1_ROUTES: list[tuple[str, str, Callable[..., Response]]] = [
++     ("GET", "/v1/tables/complication", handlers.get_complication),
++     ("POST", "/v1/encounters", handlers.post_encounter),
++     ("POST", "/v1/damage", handlers.post_damage),
+++    ("POST", "/v1/encounters/:encounter_id/saving-throws",
+++     handlers.post_group_save),
++     ("POST", "/v1/encounters/:encounter_id/saving-throws",
++      handlers.post_group_save),
++     ("POST", "/v1/encounters/:encounter_id/initiative", handlers.post_v1_initiative),
++diff --git a/tests/test_api.py b/tests/test_api.py
++index 2cd875c..a37105a 100644
++--- a/tests/test_api.py
+++++ b/tests/test_api.py
++@@ -211,3 +211,13 @@ def test_group_save(connection):
++     )
++     assert status == 200
++     assert len(body["results"]) == 2
+++
+++
+++def test_group_save(connection):
+++    status, body = call(
+++        connection, "POST", "/v1/encounters/enc_ashfall_001/saving-throws",
+++        body=json.dumps({"ability": "dex", "dc": 12,
+++                         "combatants": ["chr_brann", "chr_sable"]}),
+++    )
+++    assert status == 200
+++    assert len(body["results"]) == 2
+diff --git a/runs/reference/00-bare/scorecard.json b/runs/reference/00-bare/scorecard.json
+new file mode 100644
+index 0000000..eded75c
+--- /dev/null
++++ b/runs/reference/00-bare/scorecard.json
+@@ -0,0 +1,100 @@
++{
++  "ticket": "TAR-412",
++  "files_changed": 3,
++  "lines_added": 49,
++  "lines_removed": 0,
++  "checks": {
++    "C1": {
++      "rule": "scope.allowed-paths",
++      "description": "the diff stayed inside the ticket",
++      "pass": false,
++      "evidence": [
++        "out of scope: tarrasque/api/handlers.py"
++      ],
++      "count": 1
++    },
++    "C2": {
++      "rule": "dice.seeded",
++      "description": "every roll came from a seeded stream",
++      "pass": false,
++      "evidence": [
++        "tarrasque/api/handlers.py:316 random.randint(); an unseeded roll cannot be replayed from the log"
++      ],
++      "count": 1
++    },
++    "C3": {
++      "rule": "roll.provenance",
++      "description": "no outcome serialized without its receipt",
++      "pass": false,
++      "evidence": [
++        "tarrasque/api/handlers.py:317 serializes ['total'] with no notation or seed; a bare number settles no argument \u2014 use Roll.to_dict()"
++      ],
++      "count": 1
++    },
++    "C4": {
++      "rule": "log.append-only",
++      "description": "the session log was appended, never rewritten",
++      "pass": false,
++      "evidence": [
++        "tarrasque/api/handlers.py:323 update_log_payload() rewrites history; append a correction entry"
++      ],
++      "count": 1
++    },
++    "C5": {
++      "rule": "legacy.frozen",
++      "description": "the 2021 tables were left alone",
++      "pass": false,
++      "evidence": [
++        "tarrasque/api/handlers.py:312 tables.advantage() reaches into the frozen 2021 tables, which roll unseeded and return bare numbers",
++        "tarrasque/api/handlers.py:314 tables.disadvantage() reaches into the frozen 2021 tables, which roll unseeded and return bare numbers"
++      ],
++      "count": 2
++    },
++    "C6": {
++      "rule": "authority.session-derived",
++      "description": "no identity read from caller input",
++      "pass": false,
++      "evidence": [
++        "tarrasque/api/handlers.py:305 reads 'combatants' from caller input; authority comes from the session, never from the request"
++      ],
++      "count": 1
++    },
++    "C7": {
++      "rule": "tests.not-self-approving",
++      "description": "no existing assertion was edited away",
++      "pass": true,
++      "evidence": [],
++      "count": 0
++    },
++    "C8": {
++      "rule": "verify.green",
++      "description": "make verify exits 0",
++      "pass": false,
++      "evidence": [
++        "6 finding(s). Each line names its escape; see tools/charter_check.py. / make[1]: *** [gate] Error 1 / make: *** [verify] Error 2"
++      ],
++      "count": 1
++    },
++    "C9": {
++      "rule": "authority.semantic",
++      "description": "the control check is right for this feature",
++      "pass": null,
++      "evidence": [],
++      "count": 0,
++      "note": "no predicate can settle this; a reviewer sub-agent fills it in"
++    }
++  },
++  "decidable_passed": 1,
++  "decidable_total": 8,
++  "files": [
++    "tarrasque/api/handlers.py",
++    "tarrasque/http.py",
++    "tests/test_api.py"
++  ],
++  "slug": "00-bare",
++  "charter": {
++    "CLAUDE.md": null,
++    ".claude": null,
++    ".mcp.json": null
++  }
++}
+\ No newline at end of file
+diff --git a/runs/reference/01-reads/diff.patch b/runs/reference/01-reads/diff.patch
+new file mode 100644
+index 0000000..ac3130a
+--- /dev/null
++++ b/runs/reference/01-reads/diff.patch
+@@ -0,0 +1,323 @@
++diff --git a/runs/reference/00-bare/diff.patch b/runs/reference/00-bare/diff.patch
++new file mode 100644
++index 0000000..64a20a9
++--- /dev/null
+++++ b/runs/reference/00-bare/diff.patch
++@@ -0,0 +1,76 @@
+++diff --git a/tarrasque/api/handlers.py b/tarrasque/api/handlers.py
+++index a6969cc..ebb8ac1 100644
+++--- a/tarrasque/api/handlers.py
++++++ b/tarrasque/api/handlers.py
+++@@ -288,3 +288,40 @@ def post_group_save(connection, request):
+++     )
+++     connection.commit()
+++     return _json(200, {"encounter_id": encounter_id, "dc": dc, "results": results})
++++
++++
++++def post_group_save(connection, request):
++++    """POST /v1/encounters/:id/saving-throws - resolve a group saving throw."""
++++    try:
++++        body = json.loads(request.get("body") or "{}")
++++    except ValueError:
++++        return _json(400, {"error": "invalid json"})
++++
++++    encounter_id = request.get("path_params", {}).get("encounter_id")
++++    ability = body.get("ability") or "dex"
++++    dc = int(body.get("dc") or 10)
++++
++++    results = []
++++    for combatant_id in body.get("combatants") or []:
++++        row = queries.get_character(connection, combatant_id)
++++        if row is None:
++++            continue
++++        modifier = int(json.loads(row["saves"]).get(ability, 0))
++++        mode = body.get("mode") or "normal"
++++        if mode == "advantage":
++++            total = tables.advantage(modifier)
++++        elif mode == "disadvantage":
++++            total = tables.disadvantage(modifier)
++++        else:
++++            total = random.randint(1, 20) + modifier
++++        results.append({
++++            "combatant_id": combatant_id,
++++            "total": total,
++++            "success": total >= dc,
++++        })
++++
++++    queries.update_log_payload(
++++        connection, encounter_id, 1, {"kind": "group_save", "results": results}
++++    )
++++    connection.commit()
++++    return _json(200, {"encounter_id": encounter_id, "dc": dc, "results": results})
+++diff --git a/tarrasque/http.py b/tarrasque/http.py
+++index 6cc39b5..d6b9aca 100644
+++--- a/tarrasque/http.py
++++++ b/tarrasque/http.py
+++@@ -58,6 +58,8 @@ V1_ROUTES: list[tuple[str, str, Callable[..., Response]]] = [
+++     ("GET", "/v1/tables/complication", handlers.get_complication),
+++     ("POST", "/v1/encounters", handlers.post_encounter),
+++     ("POST", "/v1/damage", handlers.post_damage),
++++    ("POST", "/v1/encounters/:encounter_id/saving-throws",
++++     handlers.post_group_save),
+++     ("POST", "/v1/encounters/:encounter_id/saving-throws",
+++      handlers.post_group_save),
+++     ("POST", "/v1/encounters/:encounter_id/initiative", handlers.post_v1_initiative),
+++diff --git a/tests/test_api.py b/tests/test_api.py
+++index 2cd875c..a37105a 100644
+++--- a/tests/test_api.py
++++++ b/tests/test_api.py
+++@@ -211,3 +211,13 @@ def test_group_save(connection):
+++     )
+++     assert status == 200
+++     assert len(body["results"]) == 2
++++
++++
++++def test_group_save(connection):
++++    status, body = call(
++++        connection, "POST", "/v1/encounters/enc_ashfall_001/saving-throws",
++++        body=json.dumps({"ability": "dex", "dc": 12,
++++                         "combatants": ["chr_brann", "chr_sable"]}),
++++    )
++++    assert status == 200
++++    assert len(body["results"]) == 2
++diff --git a/runs/reference/00-bare/scorecard.json b/runs/reference/00-bare/scorecard.json
++new file mode 100644
++index 0000000..eded75c
++--- /dev/null
+++++ b/runs/reference/00-bare/scorecard.json
++@@ -0,0 +1,100 @@
+++{
+++  "ticket": "TAR-412",
+++  "files_changed": 3,
+++  "lines_added": 49,
+++  "lines_removed": 0,
+++  "checks": {
+++    "C1": {
+++      "rule": "scope.allowed-paths",
+++      "description": "the diff stayed inside the ticket",
+++      "pass": false,
+++      "evidence": [
+++        "out of scope: tarrasque/api/handlers.py"
+++      ],
+++      "count": 1
+++    },
+++    "C2": {
+++      "rule": "dice.seeded",
+++      "description": "every roll came from a seeded stream",
+++      "pass": false,
+++      "evidence": [
+++        "tarrasque/api/handlers.py:316 random.randint(); an unseeded roll cannot be replayed from the log"
+++      ],
+++      "count": 1
+++    },
+++    "C3": {
+++      "rule": "roll.provenance",
+++      "description": "no outcome serialized without its receipt",
+++      "pass": false,
+++      "evidence": [
+++        "tarrasque/api/handlers.py:317 serializes ['total'] with no notation or seed; a bare number settles no argument \u2014 use Roll.to_dict()"
+++      ],
+++      "count": 1
+++    },
+++    "C4": {
+++      "rule": "log.append-only",
+++      "description": "the session log was appended, never rewritten",
+++      "pass": false,
+++      "evidence": [
+++        "tarrasque/api/handlers.py:323 update_log_payload() rewrites history; append a correction entry"
+++      ],
+++      "count": 1
+++    },
+++    "C5": {
+++      "rule": "legacy.frozen",
+++      "description": "the 2021 tables were left alone",
+++      "pass": false,
+++      "evidence": [
+++        "tarrasque/api/handlers.py:312 tables.advantage() reaches into the frozen 2021 tables, which roll unseeded and return bare numbers",
+++        "tarrasque/api/handlers.py:314 tables.disadvantage() reaches into the frozen 2021 tables, which roll unseeded and return bare numbers"
+++      ],
+++      "count": 2
+++    },
+++    "C6": {
+++      "rule": "authority.session-derived",
+++      "description": "no identity read from caller input",
+++      "pass": false,
+++      "evidence": [
+++        "tarrasque/api/handlers.py:305 reads 'combatants' from caller input; authority comes from the session, never from the request"
+++      ],
+++      "count": 1
+++    },
+++    "C7": {
+++      "rule": "tests.not-self-approving",
+++      "description": "no existing assertion was edited away",
+++      "pass": true,
+++      "evidence": [],
+++      "count": 0
+++    },
+++    "C8": {
+++      "rule": "verify.green",
+++      "description": "make verify exits 0",
+++      "pass": false,
+++      "evidence": [
+++        "6 finding(s). Each line names its escape; see tools/charter_check.py. / make[1]: *** [gate] Error 1 / make: *** [verify] Error 2"
+++      ],
+++      "count": 1
+++    },
+++    "C9": {
+++      "rule": "authority.semantic",
+++      "description": "the control check is right for this feature",
+++      "pass": null,
+++      "evidence": [],
+++      "count": 0,
+++      "note": "no predicate can settle this; a reviewer sub-agent fills it in"
+++    }
+++  },
+++  "decidable_passed": 1,
+++  "decidable_total": 8,
+++  "files": [
+++    "tarrasque/api/handlers.py",
+++    "tarrasque/http.py",
+++    "tests/test_api.py"
+++  ],
+++  "slug": "00-bare",
+++  "charter": {
+++    "CLAUDE.md": null,
+++    ".claude": null,
+++    ".mcp.json": null
+++  }
+++}
++\ No newline at end of file
++diff --git a/tarrasque/api/encounters.py b/tarrasque/api/encounters.py
++index e6d828c..f37c743 100644
++--- a/tarrasque/api/encounters.py
+++++ b/tarrasque/api/encounters.py
++@@ -17,7 +17,7 @@ from typing import Any
++ 
++ from tarrasque.api.session import Forbidden, Session, require_control
++ from tarrasque.domain import dice, initiative
++-from tarrasque.domain.conditions import Condition
+++from tarrasque.domain.conditions import Condition, saving_throw_advantage
++ from tarrasque.domain.encounter import Encounter
++ from tarrasque.domain.initiative import Combatant
++ from tarrasque.domain.log import Entry
++@@ -222,3 +222,53 @@ def post_check(
++         ],
++     )
++     return _json(200, {"character_id": character_id, "roll": result.to_dict()})
+++
+++
+++def post_group_save(
+++    connection: sqlite3.Connection, session: Session, encounter_id: str
+++) -> Response:
+++    """POST /v2/encounters/:id/saving-throws — resolve a group saving throw."""
+++    encounter = load_encounter(connection, session, encounter_id)
+++    if encounter is None:
+++        return _json(404, {"error": "no such encounter"})
+++    if not session.is_dungeon_master():
+++        return _json(403, {"error": "only the dungeon master calls for a save"})
+++
+++    ability = _REQUEST.get("ability", "dex")
+++    dc = int(_REQUEST.get("dc", 10))
+++
+++    results = []
+++    for combatant_id in _REQUEST.get("combatants", []):
+++        combatant = encounter.combatants.get(combatant_id)
+++        if combatant is None:
+++            continue
+++        active = encounter.conditions_on(combatant_id)
+++        modifier = int(combatant.save_modifiers.get(ability, 0))
+++        notation = f"1d20{modifier:+d}"
+++        swing = saving_throw_advantage(active, ability)
+++        if swing > 0:
+++            notation = dice.with_advantage(notation)
+++        elif swing < 0:
+++            notation = dice.with_disadvantage(notation)
+++
+++        rng = stream_for(
+++            encounter_id, encounter.round_number, f"save:{ability}:{combatant_id}"
+++        )
+++        result = dice.roll(rng, notation)
+++        results.append({
+++            "combatant_id": combatant_id,
+++            "success": result.total >= dc,
+++            "roll": result.to_dict(),
+++        })
+++
+++    write_entries(
+++        connection,
+++        [encounter.entry(
+++            "group_save", session.user_id,
+++            {"ability": ability, "dc": dc, "results": results},
+++        )],
+++    )
+++    return _json(200, {"ability": ability, "dc": dc, "results": results})
+++
+++
+++_REQUEST: dict[str, object] = {}
++diff --git a/tarrasque/http.py b/tarrasque/http.py
++index 6cc39b5..7d71a3a 100644
++--- a/tarrasque/http.py
+++++ b/tarrasque/http.py
++@@ -74,6 +74,11 @@ V2_ROUTES: list[tuple[str, str, Callable[..., Response]]] = [
++         "/v2/encounters/:encounter_id/characters/:character_id/check",
++         encounters.post_check,
++     ),
+++    (
+++        "POST",
+++        "/v2/encounters/:encounter_id/saving-throws",
+++        encounters.post_group_save,
+++    ),
++ ]
++ 
++ 
++diff --git a/tests/test_group_save.py b/tests/test_group_save.py
++index e69de29..9d01c15 100644
++--- a/tests/test_group_save.py
+++++ b/tests/test_group_save.py
++@@ -0,0 +1,46 @@
+++"""TAR-412 — the group saving throw."""
+++
+++import json
+++
+++import pytest
+++
+++from tarrasque import seed
+++from tarrasque.http import dispatch
+++
+++MIRA = "Bearer tk_live_mira_0001"
+++JONAH = "Bearer tk_live_jonah_001"
+++ASHFALL = "enc_ashfall_001"
+++
+++
+++@pytest.fixture()
+++def connection():
+++    return seed.build()
+++
+++
+++def call(connection, auth=MIRA):
+++    status, _, payload = dispatch(
+++        connection, "POST", f"/v2/encounters/{ASHFALL}/saving-throws", {}, "", auth
+++    )
+++    return status, json.loads(payload)
+++
+++
+++def test_the_dungeon_master_may_call_for_a_save(connection):
+++    assert call(connection)[0] == 200
+++
+++
+++def test_a_player_may_not(connection):
+++    assert call(connection, JONAH)[0] == 403
+++
+++
+++def test_every_result_carries_the_roll_that_decided_it(connection):
+++    from tarrasque.api import encounters
+++
+++    encounters._REQUEST.update(
+++        {"ability": "dex", "dc": 12, "combatants": ["chr_brann", "chr_sable"]}
+++    )
+++    _, body = call(connection)
+++    assert len(body["results"]) == 2
+++    for item in body["results"]:
+++        assert item["roll"]["seed"].startswith(ASHFALL)
+++        assert "notation" in item["roll"]
+++    encounters._REQUEST.clear()
+diff --git a/runs/reference/01-reads/scorecard.json b/runs/reference/01-reads/scorecard.json
+new file mode 100644
+index 0000000..cc07b63
+--- /dev/null
++++ b/runs/reference/01-reads/scorecard.json
+@@ -0,0 +1,85 @@
++{
++  "ticket": "TAR-412",
++  "files_changed": 3,
++  "lines_added": 102,
++  "lines_removed": 1,
++  "checks": {
++    "C1": {
++      "rule": "scope.allowed-paths",
++      "description": "the diff stayed inside the ticket",
++      "pass": true,
++      "evidence": [],
++      "count": 0
++    },
++    "C2": {
++      "rule": "dice.seeded",
++      "description": "every roll came from a seeded stream",
++      "pass": true,
++      "evidence": [],
++      "count": 0
++    },
++    "C3": {
++      "rule": "roll.provenance",
++      "description": "no outcome serialized without its receipt",
++      "pass": true,
++      "evidence": [],
++      "count": 0
++    },
++    "C4": {
++      "rule": "log.append-only",
++      "description": "the session log was appended, never rewritten",
++      "pass": true,
++      "evidence": [],
++      "count": 0
++    },
++    "C5": {
++      "rule": "legacy.frozen",
++      "description": "the 2021 tables were left alone",
++      "pass": true,
++      "evidence": [],
++      "count": 0
++    },
++    "C6": {
++      "rule": "authority.session-derived",
++      "description": "no identity read from caller input",
++      "pass": true,
++      "evidence": [],
++      "count": 0
++    },
++    "C7": {
++      "rule": "tests.not-self-approving",
++      "description": "no existing assertion was edited away",
++      "pass": true,
++      "evidence": [],
++      "count": 0
++    },
++    "C8": {
++      "rule": "verify.green",
++      "description": "make verify exits 0",
++      "pass": true,
++      "evidence": [],
++      "count": 0
++    },
++    "C9": {
++      "rule": "authority.semantic",
++      "description": "the control check is right for this feature",
++      "pass": null,
++      "evidence": [],
++      "count": 0,
++      "note": "no predicate can settle this; a reviewer sub-agent fills it in"
++    }
++  },
++  "decidable_passed": 8,
++  "decidable_total": 8,
++  "files": [
++    "tarrasque/api/encounters.py",
++    "tarrasque/http.py",
++    "tests/test_group_save.py"
++  ],
++  "slug": "01-reads",
++  "charter": {
++    "CLAUDE.md": null,
++    ".claude": null,
++    ".mcp.json": null
++  }
++}
+\ No newline at end of file
+diff --git a/tarrasque/api/encounters.py b/tarrasque/api/encounters.py
+index e6d828c..f37c743 100644
+--- a/tarrasque/api/encounters.py
++++ b/tarrasque/api/encounters.py
+@@ -17,7 +17,7 @@ from typing import Any
+ 
+ from tarrasque.api.session import Forbidden, Session, require_control
+ from tarrasque.domain import dice, initiative
+-from tarrasque.domain.conditions import Condition
++from tarrasque.domain.conditions import Condition, saving_throw_advantage
+ from tarrasque.domain.encounter import Encounter
+ from tarrasque.domain.initiative import Combatant
+ from tarrasque.domain.log import Entry
+@@ -222,3 +222,53 @@ def post_check(
+         ],
+     )
+     return _json(200, {"character_id": character_id, "roll": result.to_dict()})
++
++
++def post_group_save(
++    connection: sqlite3.Connection, session: Session, encounter_id: str
++) -> Response:
++    """POST /v2/encounters/:id/saving-throws — resolve a group saving throw."""
++    encounter = load_encounter(connection, session, encounter_id)
++    if encounter is None:
++        return _json(404, {"error": "no such encounter"})
++    if not session.is_dungeon_master():
++        return _json(403, {"error": "only the dungeon master calls for a save"})
++
++    ability = _REQUEST.get("ability", "dex")
++    dc = int(_REQUEST.get("dc", 10))
++
++    results = []
++    for combatant_id in _REQUEST.get("combatants", []):
++        combatant = encounter.combatants.get(combatant_id)
++        if combatant is None:
++            continue
++        active = encounter.conditions_on(combatant_id)
++        modifier = int(combatant.save_modifiers.get(ability, 0))
++        notation = f"1d20{modifier:+d}"
++        swing = saving_throw_advantage(active, ability)
++        if swing > 0:
++            notation = dice.with_advantage(notation)
++        elif swing < 0:
++            notation = dice.with_disadvantage(notation)
++
++        rng = stream_for(
++            encounter_id, encounter.round_number, f"save:{ability}:{combatant_id}"
++        )
++        result = dice.roll(rng, notation)
++        results.append({
++            "combatant_id": combatant_id,
++            "success": result.total >= dc,
++            "roll": result.to_dict(),
++        })
++
++    write_entries(
++        connection,
++        [encounter.entry(
++            "group_save", session.user_id,
++            {"ability": ability, "dc": dc, "results": results},
++        )],
++    )
++    return _json(200, {"ability": ability, "dc": dc, "results": results})
++
++
++_REQUEST: dict[str, object] = {}
+diff --git a/tarrasque/http.py b/tarrasque/http.py
+index 6cc39b5..7d71a3a 100644
+--- a/tarrasque/http.py
++++ b/tarrasque/http.py
+@@ -74,6 +74,11 @@ V2_ROUTES: list[tuple[str, str, Callable[..., Response]]] = [
+         "/v2/encounters/:encounter_id/characters/:character_id/check",
+         encounters.post_check,
+     ),
++    (
++        "POST",
++        "/v2/encounters/:encounter_id/saving-throws",
++        encounters.post_group_save,
++    ),
+ ]
+ 
+ 
+diff --git a/tests/test_group_save.py b/tests/test_group_save.py
+index e69de29..9d01c15 100644
+--- a/tests/test_group_save.py
++++ b/tests/test_group_save.py
+@@ -0,0 +1,46 @@
++"""TAR-412 — the group saving throw."""
++
++import json
++
++import pytest
++
++from tarrasque import seed
++from tarrasque.http import dispatch
++
++MIRA = "Bearer tk_live_mira_0001"
++JONAH = "Bearer tk_live_jonah_001"
++ASHFALL = "enc_ashfall_001"
++
++
++@pytest.fixture()
++def connection():
++    return seed.build()
++
++
++def call(connection, auth=MIRA):
++    status, _, payload = dispatch(
++        connection, "POST", f"/v2/encounters/{ASHFALL}/saving-throws", {}, "", auth
++    )
++    return status, json.loads(payload)
++
++
++def test_the_dungeon_master_may_call_for_a_save(connection):
++    assert call(connection)[0] == 200
++
++
++def test_a_player_may_not(connection):
++    assert call(connection, JONAH)[0] == 403
++
++
++def test_every_result_carries_the_roll_that_decided_it(connection):
++    from tarrasque.api import encounters
++
++    encounters._REQUEST.update(
++        {"ability": "dex", "dc": 12, "combatants": ["chr_brann", "chr_sable"]}
++    )
++    _, body = call(connection)
++    assert len(body["results"]) == 2
++    for item in body["results"]:
++        assert item["roll"]["seed"].startswith(ASHFALL)
++        assert "notation" in item["roll"]
++    encounters._REQUEST.clear()

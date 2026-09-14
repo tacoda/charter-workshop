@@ -30,6 +30,28 @@ def git(*args: str) -> str:
     ).stdout
 
 
+def full_diff() -> str:
+    """The tracked diff, plus each untracked file, without touching the index.
+
+    The obvious way to include untracked files is `git add -N`. Do not: an
+    intent-to-add entry has an empty blob, so a later `git checkout -- .` —
+    which is exactly how every lab in this workshop resets the tree —
+    restores the file from that empty blob and silently truncates it to zero
+    bytes. This cost me the workshop page once. `git diff --no-index` needs
+    no index entry at all.
+    """
+    parts = [git("diff", "HEAD")]
+    for path in git("ls-files", "--others", "--exclude-standard").split():
+        if path.startswith(("runs/", ".refruns/")):
+            continue
+        result = subprocess.run(
+            ["git", "diff", "--no-index", "--", "/dev/null", path],
+            cwd=ROOT, capture_output=True, text=True, check=False,
+        )
+        parts.append(result.stdout)
+    return "".join(parts)
+
+
 def charter_state() -> dict:
     """What of the charter existed at capture time. The independent variable."""
     present = {}
@@ -62,11 +84,7 @@ def main() -> int:
     target = ROOT / "runs" / args.slug
     target.mkdir(parents=True, exist_ok=True)
 
-    untracked = git("ls-files", "--others", "--exclude-standard").split()
-    if untracked:
-        subprocess.run(["git", "add", "-N", *untracked], cwd=ROOT, check=False)
-
-    (target / "diff.patch").write_text(git("diff", "HEAD"), encoding="utf-8")
+    (target / "diff.patch").write_text(full_diff(), encoding="utf-8")
 
     card = score(args.ticket, run_verify=not args.no_verify)
     if args.review:

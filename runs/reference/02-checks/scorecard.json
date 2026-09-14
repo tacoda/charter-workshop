@@ -1,0 +1,89 @@
+{
+  "ticket": "TAR-412",
+  "files_changed": 3,
+  "lines_added": 102,
+  "lines_removed": 1,
+  "checks": {
+    "C1": {
+      "rule": "scope.allowed-paths",
+      "description": "the diff stayed inside the ticket",
+      "pass": true,
+      "evidence": [],
+      "count": 0
+    },
+    "C2": {
+      "rule": "dice.seeded",
+      "description": "every roll came from a seeded stream",
+      "pass": true,
+      "evidence": [],
+      "count": 0
+    },
+    "C3": {
+      "rule": "roll.provenance",
+      "description": "no outcome serialized without its receipt",
+      "pass": true,
+      "evidence": [],
+      "count": 0
+    },
+    "C4": {
+      "rule": "log.append-only",
+      "description": "the session log was appended, never rewritten",
+      "pass": true,
+      "evidence": [],
+      "count": 0
+    },
+    "C5": {
+      "rule": "legacy.frozen",
+      "description": "the 2021 tables were left alone",
+      "pass": true,
+      "evidence": [],
+      "count": 0
+    },
+    "C6": {
+      "rule": "authority.session-derived",
+      "description": "no identity read from caller input",
+      "pass": true,
+      "evidence": [],
+      "count": 0
+    },
+    "C7": {
+      "rule": "tests.not-self-approving",
+      "description": "no existing assertion was edited away",
+      "pass": true,
+      "evidence": [],
+      "count": 0
+    },
+    "C8": {
+      "rule": "verify.green",
+      "description": "make verify exits 0",
+      "pass": true,
+      "evidence": [],
+      "count": 0
+    },
+    "C9": {
+      "rule": "authority.semantic",
+      "description": "the control check is right for this feature",
+      "pass": false,
+      "evidence": [
+        "encounters.py \u00b7 authority \u00b7 gates on session.is_dungeon_master(), so a player asking for a save on their own character is refused; TAR-412 criterion 4 allows it",
+        "encounters.py \u00b7 authority \u00b7 a charmed combatant is controlled by the charmer for the duration and the handler does not consider it; the ticket is silent, so this should have been raised, not chosen",
+        "test_group_save.py \u00b7 coverage \u00b7 the test reaches into a module global to set the request, so the refusal path is the only thing exercised end to end"
+      ],
+      "count": 3,
+      "note": "filled in by the charter-auditor sub-agent"
+    }
+  },
+  "decidable_passed": 8,
+  "decidable_total": 8,
+  "files": [
+    "tarrasque/api/encounters.py",
+    "tarrasque/http.py",
+    "tests/test_group_save.py"
+  ],
+  "slug": "02-checks",
+  "charter": {
+    "CLAUDE.md": null,
+    ".claude": null,
+    ".mcp.json": null
+  }
+}

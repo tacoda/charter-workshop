@@ -1,0 +1,76 @@
+diff --git a/tarrasque/api/handlers.py b/tarrasque/api/handlers.py
+index a6969cc..ebb8ac1 100644
+--- a/tarrasque/api/handlers.py
++++ b/tarrasque/api/handlers.py
+@@ -288,3 +288,40 @@ def post_group_save(connection, request):
+     )
+     connection.commit()
+     return _json(200, {"encounter_id": encounter_id, "dc": dc, "results": results})
++
++
++def post_group_save(connection, request):
++    """POST /v1/encounters/:id/saving-throws - resolve a group saving throw."""
++    try:
++        body = json.loads(request.get("body") or "{}")
++    except ValueError:
++        return _json(400, {"error": "invalid json"})
++
++    encounter_id = request.get("path_params", {}).get("encounter_id")
++    ability = body.get("ability") or "dex"
++    dc = int(body.get("dc") or 10)
++
++    results = []
++    for combatant_id in body.get("combatants") or []:
++        row = queries.get_character(connection, combatant_id)
++        if row is None:
++            continue
++        modifier = int(json.loads(row["saves"]).get(ability, 0))
++        mode = body.get("mode") or "normal"
++        if mode == "advantage":
++            total = tables.advantage(modifier)
++        elif mode == "disadvantage":
++            total = tables.disadvantage(modifier)
++        else:
++            total = random.randint(1, 20) + modifier
++        results.append({
++            "combatant_id": combatant_id,
++            "total": total,
++            "success": total >= dc,
++        })
++
++    queries.update_log_payload(
++        connection, encounter_id, 1, {"kind": "group_save", "results": results}
++    )
++    connection.commit()
++    return _json(200, {"encounter_id": encounter_id, "dc": dc, "results": results})
+diff --git a/tarrasque/http.py b/tarrasque/http.py
+index 6cc39b5..d6b9aca 100644
+--- a/tarrasque/http.py
++++ b/tarrasque/http.py
+@@ -58,6 +58,8 @@ V1_ROUTES: list[tuple[str, str, Callable[..., Response]]] = [
+     ("GET", "/v1/tables/complication", handlers.get_complication),
+     ("POST", "/v1/encounters", handlers.post_encounter),
+     ("POST", "/v1/damage", handlers.post_damage),
++    ("POST", "/v1/encounters/:encounter_id/saving-throws",
++     handlers.post_group_save),
+     ("POST", "/v1/encounters/:encounter_id/saving-throws",
+      handlers.post_group_save),
+     ("POST", "/v1/encounters/:encounter_id/initiative", handlers.post_v1_initiative),
+diff --git a/tests/test_api.py b/tests/test_api.py
+index 2cd875c..a37105a 100644
+--- a/tests/test_api.py
++++ b/tests/test_api.py
+@@ -211,3 +211,13 @@ def test_group_save(connection):
+     )
+     assert status == 200
+     assert len(body["results"]) == 2
++
++
++def test_group_save(connection):
++    status, body = call(
++        connection, "POST", "/v1/encounters/enc_ashfall_001/saving-throws",
++        body=json.dumps({"ability": "dex", "dc": 12,
++                         "combatants": ["chr_brann", "chr_sable"]}),
++    )
++    assert status == 200
++    assert len(body["results"]) == 2
