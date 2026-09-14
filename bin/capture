@@ -55,6 +55,8 @@ def main() -> int:
     parser.add_argument("--reset", action="store_true",
                         help="restore the tree to HEAD after capturing")
     parser.add_argument("--no-verify", action="store_true")
+    parser.add_argument("--review", help="a JSON verdict from the reviewer "
+                                         "sub-agent, to fill check C9")
     args = parser.parse_args()
 
     target = ROOT / "runs" / args.slug
@@ -67,6 +69,14 @@ def main() -> int:
     (target / "diff.patch").write_text(git("diff", "HEAD"), encoding="utf-8")
 
     card = score(args.ticket, run_verify=not args.no_verify)
+    if args.review:
+        verdict = json.loads(Path(args.review).read_text(encoding="utf-8"))
+        card["checks"]["C9"].update({
+            "pass": bool(verdict.get("pass")),
+            "evidence": verdict.get("findings", [])[:6],
+            "count": len(verdict.get("findings", [])),
+            "note": "filled in by the charter-auditor sub-agent",
+        })
     card["slug"] = args.slug
     card["charter"] = charter_state()
     (target / "scorecard.json").write_text(json.dumps(card, indent=2), encoding="utf-8")
