@@ -1,0 +1,2926 @@
+diff --git a/tarrasque/api/handlers.py b/tarrasque/api/handlers.py
+index a6969cc..ebb8ac1 100644
+--- a/tarrasque/api/handlers.py
++++ b/tarrasque/api/handlers.py
+@@ -288,3 +288,40 @@ def post_group_save(connection, request):
+     )
+     connection.commit()
+     return _json(200, {"encounter_id": encounter_id, "dc": dc, "results": results})
++
++
++def post_group_save(connection, request):
++    """POST /v1/encounters/:id/saving-throws - resolve a group saving throw."""
++    try:
++        body = json.loads(request.get("body") or "{}")
++    except ValueError:
++        return _json(400, {"error": "invalid json"})
++
++    encounter_id = request.get("path_params", {}).get("encounter_id")
++    ability = body.get("ability") or "dex"
++    dc = int(body.get("dc") or 10)
++
++    results = []
++    for combatant_id in body.get("combatants") or []:
++        row = queries.get_character(connection, combatant_id)
++        if row is None:
++            continue
++        modifier = int(json.loads(row["saves"]).get(ability, 0))
++        mode = body.get("mode") or "normal"
++        if mode == "advantage":
++            total = tables.advantage(modifier)
++        elif mode == "disadvantage":
++            total = tables.disadvantage(modifier)
++        else:
++            total = random.randint(1, 20) + modifier
++        results.append({
++            "combatant_id": combatant_id,
++            "total": total,
++            "success": total >= dc,
++        })
++
++    queries.update_log_payload(
++        connection, encounter_id, 1, {"kind": "group_save", "results": results}
++    )
++    connection.commit()
++    return _json(200, {"encounter_id": encounter_id, "dc": dc, "results": results})
+diff --git a/tarrasque/http.py b/tarrasque/http.py
+index 6cc39b5..d6b9aca 100644
+--- a/tarrasque/http.py
++++ b/tarrasque/http.py
+@@ -58,6 +58,8 @@ V1_ROUTES: list[tuple[str, str, Callable[..., Response]]] = [
+     ("GET", "/v1/tables/complication", handlers.get_complication),
+     ("POST", "/v1/encounters", handlers.post_encounter),
+     ("POST", "/v1/damage", handlers.post_damage),
++    ("POST", "/v1/encounters/:encounter_id/saving-throws",
++     handlers.post_group_save),
+     ("POST", "/v1/encounters/:encounter_id/saving-throws",
+      handlers.post_group_save),
+     ("POST", "/v1/encounters/:encounter_id/initiative", handlers.post_v1_initiative),
+diff --git a/tests/test_api.py b/tests/test_api.py
+index 2cd875c..a37105a 100644
+--- a/tests/test_api.py
++++ b/tests/test_api.py
+@@ -211,3 +211,13 @@ def test_group_save(connection):
+     )
+     assert status == 200
+     assert len(body["results"]) == 2
++
++
++def test_group_save(connection):
++    status, body = call(
++        connection, "POST", "/v1/encounters/enc_ashfall_001/saving-throws",
++        body=json.dumps({"ability": "dex", "dc": 12,
++                         "combatants": ["chr_brann", "chr_sable"]}),
++    )
++    assert status == 200
++    assert len(body["results"]) == 2
+diff --git a/workshop/index.html b/workshop/index.html
+new file mode 100644
+index 0000000..f8788f8
+--- /dev/null
++++ b/workshop/index.html
+@@ -0,0 +1,2844 @@
++<!doctype html>
++<html lang="en">
++<head>
++<meta charset="utf-8">
++<meta name="viewport" content="width=device-width, initial-scale=1">
++<title>Wrap It in a Charter · A 90-minute workshop · Ian Johnson</title>
++<meta name="description" content="Take an application you did not write, wrap it in an agent charter one lever at a time, and measure what each lever bought. Ninety minutes, laptops out.">
++<style>
++
++/* ---------- tokens ---------- */
++:root {
++  --brick:        #9C3A2A;
++  --brick-soft:   #C4614C;
++  --brick-wash:   #F4E4E0;
++  --gold:         #B8871F;
++  --gold-ink:         #785810;
++  --gold-soft:    #D6A93C;
++  --gold-wash:    #F7EEDA;
++  --forest:       #2F5D3A;
++  --forest-soft:  #4E8158;
++  --forest-wash:  #E3EDE4;
++
++  --ground:       #F1EEE8;
++  --surface:      #FBF9F5;
++  --surface-2:    #E8E3D9;
++  --ink:          #211C18;
++  --ink-2:        #4A423B;
++  --ink-3:        #6B6157;
++  --rule:         #D6CFC2;
++  --rule-soft:    #E4DED2;
++  --code-bg:      #ECE7DC;
++
++  --mono: "JetBrains Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
++  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, ui-serif, serif;
++
++  --measure: 66ch;
++  --pad: clamp(1.25rem, 4vw, 3rem);
++}
++
++@media (prefers-color-scheme: dark) {
++  :root {
++    --brick:      #D9705C;
++    --brick-soft: #B9503C;
++    --brick-wash: #34211C;
++    --gold:       #D8AA43;
++    --gold-ink:       #D8AA43;
++    --gold-soft:  #B98F2E;
++    --gold-wash:  #322815;
++    --forest:     #71A87C;
++    --forest-soft:#4F8059;
++    --forest-wash:#1B2A1E;
++
++    --ground:     #191512;
++    --surface:    #211C18;
++    --surface-2:  #2C2621;
++    --ink:        #F0EAE1;
++    --ink-2:      #C3B9AC;
++    --ink-3:      #9A8E80;
++    --rule:       #3A322B;
++    --rule-soft:  #2E2823;
++    --code-bg:    #14100D;
++  }
++}
++
++:root[data-theme="dark"] {
++  --brick:      #D9705C;
++  --brick-soft: #B9503C;
++  --brick-wash: #34211C;
++  --gold:       #D8AA43;
++  --gold-ink:       #D8AA43;
++  --gold-soft:  #B98F2E;
++  --gold-wash:  #322815;
++  --forest:     #71A87C;
++  --forest-soft:#4F8059;
++  --forest-wash:#1B2A1E;
++
++  --ground:     #191512;
++  --surface:    #211C18;
++  --surface-2:  #2C2621;
++  --ink:        #F0EAE1;
++  --ink-2:      #C3B9AC;
++  --ink-3:      #9A8E80;
++  --rule:       #3A322B;
++  --rule-soft:  #2E2823;
++  --code-bg:    #14100D;
++}
++
++:root[data-theme="light"] {
++  --brick:      #9C3A2A;
++  --brick-soft: #C4614C;
++  --brick-wash: #F4E4E0;
++  --gold:       #B8871F;
++  --gold-ink:       #785810;
++  --gold-soft:  #D6A93C;
++  --gold-wash:  #F7EEDA;
++  --forest:     #2F5D3A;
++  --forest-soft:#4E8158;
++  --forest-wash:#E3EDE4;
++
++  --ground:     #F1EEE8;
++  --surface:    #FBF9F5;
++  --surface-2:  #E8E3D9;
++  --ink:        #211C18;
++  --ink-2:      #4A423B;
++  --ink-3:      #6B6157;
++  --rule:       #D6CFC2;
++  --rule-soft:  #E4DED2;
++  --code-bg:    #ECE7DC;
++}
++
++/* ---------- reset-ish ---------- */
++*, *::before, *::after { box-sizing: border-box; }
++html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
++@media (prefers-reduced-motion: reduce) {
++  html { scroll-behavior: auto; }
++  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
++}
++body {
++  margin: 0;
++  background: var(--ground);
++  color: var(--ink);
++  font-family: var(--serif);
++  font-size: 17px;
++  line-height: 1.62;
++  -webkit-font-smoothing: antialiased;
++}
++p { margin: 0; }
++a { color: inherit; }
++:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; border-radius: 2px; }
++
++/* ---------- shell ---------- */
++.shell {
++  max-width: 1180px;
++  margin: 0 auto;
++  padding: 0 var(--pad) 6rem;
++}
++
++/* ---------- masthead ---------- */
++.masthead {
++  padding: clamp(3rem, 8vw, 5.5rem) 0 2.25rem;
++  border-bottom: 3px double var(--rule);
++}
++.eyebrow {
++  font-family: var(--mono);
++  font-size: 0.7rem;
++  letter-spacing: 0.16em;
++  text-transform: uppercase;
++  color: var(--brick);
++  margin-bottom: 1.5rem;
++  display: flex;
++  flex-wrap: wrap;
++  gap: 0.5rem 1rem;
++  align-items: center;
++}
++.eyebrow .sep { color: var(--rule); }
++.masthead h1 {
++  font-family: var(--mono);
++  font-weight: 600;
++  font-size: clamp(2.1rem, 6vw, 3.6rem);
++  line-height: 1.06;
++  letter-spacing: -0.03em;
++  margin: 0 0 1.25rem;
++  text-wrap: balance;
++  max-width: 20ch;
++}
++.masthead h1 em {
++  font-style: normal;
++  color: var(--brick);
++}
++.standfirst {
++  font-size: clamp(1.05rem, 2.2vw, 1.28rem);
++  line-height: 1.55;
++  color: var(--ink-2);
++  max-width: 58ch;
++}
++.byline {
++  margin-top: 1.75rem;
++  display: flex;
++  align-items: baseline;
++  gap: 0.7rem;
++  flex-wrap: wrap;
++  font-family: var(--mono);
++  font-size: 0.78rem;
++  letter-spacing: 0.02em;
++}
++.byline .by {
++  font-size: 0.63rem;
++  letter-spacing: 0.16em;
++  text-transform: uppercase;
++  color: var(--ink-3);
++}
++.byline .name {
++  font-weight: 700;
++  color: var(--ink);
++  border-bottom: 2px solid var(--gold);
++  padding-bottom: 1px;
++}
++.byline .role { color: var(--ink-3); }
++
++.provenance {
++  margin-top: 1.6rem;
++  font-family: var(--mono);
++  font-size: 0.72rem;
++  color: var(--ink-3);
++  line-height: 1.8;
++  word-break: break-word;
++}
++
++/* ---------- signal key ---------- */
++.signals {
++  display: grid;
++  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
++  gap: 1px;
++  background: var(--rule);
++  border: 1px solid var(--rule);
++  margin: 2.5rem 0 0;
++}
++.signal {
++  background: var(--surface);
++  padding: 1rem 1.1rem;
++  display: flex;
++  gap: 0.75rem;
++  align-items: flex-start;
++}
++.signal .swatch {
++  width: 14px; height: 14px;
++  flex: none;
++  margin-top: 0.3rem;
++  border-radius: 2px;
++}
++.signal .swatch.block  { background: var(--brick); }
++.signal .swatch.warn   { background: var(--gold); }
++.signal .swatch.pass   { background: var(--forest); }
++.signal dt {
++  font-family: var(--mono);
++  font-size: 0.72rem;
++  letter-spacing: 0.09em;
++  text-transform: uppercase;
++  font-weight: 600;
++}
++.signal dd {
++  margin: 0.2rem 0 0;
++  font-size: 0.85rem;
++  line-height: 1.45;
++  color: var(--ink-2);
++}
++
++/* ---------- nav ---------- */
++.railnav {
++  position: sticky;
++  top: 0;
++  z-index: 20;
++  background: color-mix(in srgb, var(--ground) 92%, transparent);
++  backdrop-filter: blur(8px);
++  border-bottom: 1px solid var(--rule);
++  margin: 0 calc(var(--pad) * -1);
++  padding: 0 var(--pad);
++}
++.railnav ol {
++  list-style: none;
++  margin: 0; padding: 0;
++  display: flex;
++  gap: 0;
++  overflow-x: auto;
++  scrollbar-width: thin;
++}
++.railnav li { flex: none; }
++.railnav a {
++  display: flex;
++  align-items: baseline;
++  gap: 0.55rem;
++  padding: 0.85rem 1rem;
++  text-decoration: none;
++  font-family: var(--mono);
++  font-size: 0.75rem;
++  letter-spacing: 0.02em;
++  color: var(--ink-3);
++  border-bottom: 2px solid transparent;
++  white-space: nowrap;
++  transition: color 0.15s ease, border-color 0.15s ease;
++}
++.railnav a .n {
++  font-weight: 700;
++  color: var(--brick);
++  font-variant-numeric: tabular-nums;
++}
++.railnav a:hover { color: var(--ink); border-bottom-color: var(--gold-soft); }
++.railnav a:first-child { padding-left: 0; }
++
++/* ---------- rung ---------- */
++.rung {
++  padding: clamp(3rem, 7vw, 4.75rem) 0;
++  border-bottom: 1px solid var(--rule);
++  scroll-margin-top: 4rem;
++}
++.rung:last-of-type { border-bottom: 0; }
++
++.rung-head {
++  display: grid;
++  grid-template-columns: minmax(0, 1fr);
++  gap: 1.1rem;
++  margin-bottom: 2rem;
++}
++@media (min-width: 900px) {
++  .rung-head { grid-template-columns: 7.5rem minmax(0, 1fr); gap: 0 2.5rem; }
++  .rung-index { grid-row: span 3; }
++}
++
++.rung-index {
++  font-family: var(--mono);
++  display: flex;
++  flex-direction: column;
++  gap: 0.6rem;
++}
++.rung-index .num {
++  font-size: clamp(2.5rem, 7vw, 3.9rem);
++  font-weight: 700;
++  line-height: 0.85;
++  letter-spacing: -0.05em;
++  color: var(--brick);
++  font-variant-numeric: tabular-nums;
++}
++.meter {
++  display: flex;
++  gap: 3px;
++}
++.meter i {
++  width: 11px; height: 11px;
++  border: 1.5px solid var(--gold-soft);
++  border-radius: 1px;
++  display: block;
++}
++.meter i.on { background: var(--gold); border-color: var(--gold); }
++.meter-label {
++  font-size: 0.62rem;
++  letter-spacing: 0.13em;
++  text-transform: uppercase;
++  color: var(--ink-3);
++}
++
++.rung h2 {
++  font-family: var(--mono);
++  font-weight: 600;
++  font-size: clamp(1.35rem, 3.4vw, 1.95rem);
++  line-height: 1.18;
++  letter-spacing: -0.02em;
++  margin: 0;
++  text-wrap: balance;
++}
++.rung .thesis {
++  font-size: 1.05rem;
++  color: var(--ink-2);
++  max-width: var(--measure);
++  margin-top: 0.9rem;
++}
++
++/* ---------- chips ---------- */
++.chips {
++  display: flex;
++  flex-wrap: wrap;
++  gap: 0.4rem;
++  margin-top: 1.25rem;
++}
++.chip {
++  font-family: var(--mono);
++  font-size: 0.68rem;
++  letter-spacing: 0.03em;
++  padding: 0.3rem 0.55rem;
++  border: 1px solid var(--rule);
++  background: var(--surface);
++  display: inline-flex;
++  gap: 0.45rem;
++  align-items: center;
++  border-radius: 2px;
++  color: var(--ink-2);
++}
++.chip b {
++  font-weight: 700;
++  text-transform: uppercase;
++  font-size: 0.6rem;
++  letter-spacing: 0.1em;
++}
++.chip.kind-rule    { border-left: 3px solid var(--gold);   }
++.chip.kind-rule b  { color: var(--gold-ink); }
++.chip.kind-hook    { border-left: 3px solid var(--brick);  }
++.chip.kind-hook b  { color: var(--brick); }
++.chip.kind-gate    { border-left: 3px solid var(--brick);  }
++.chip.kind-gate b  { color: var(--brick); }
++.chip.kind-make    { border-left: 3px solid var(--forest); }
++.chip.kind-make b  { color: var(--forest); }
++.chip.kind-skill   { border-left: 3px solid var(--gold);   }
++.chip.kind-skill b { color: var(--gold-ink); }
++.chip.kind-cmd     { border-left: 3px solid var(--gold);   }
++.chip.kind-cmd b   { color: var(--gold-ink); }
++.chip.kind-agent   { border-left: 3px solid var(--forest); }
++.chip.kind-agent b { color: var(--forest); }
++.chip.kind-config  { border-left: 3px solid var(--ink-3);  }
++.chip.kind-config b{ color: var(--ink-3); }
++
++/* ---------- body ---------- */
++.rung-body {
++  display: grid;
++  gap: 1.4rem;
++}
++@media (min-width: 900px) {
++  .rung-body { grid-template-columns: 7.5rem minmax(0, 1fr); gap: 1.4rem 2.5rem; }
++  .rung-body > * { grid-column: 2; }
++}
++.rung-body p { max-width: var(--measure); }
++
++h3.sub {
++  font-family: var(--mono);
++  font-size: 0.7rem;
++  letter-spacing: 0.14em;
++  text-transform: uppercase;
++  color: var(--ink-3);
++  margin: 0.9rem 0 -0.4rem;
++  font-weight: 600;
++  display: flex;
++  align-items: center;
++  gap: 0.8rem;
++}
++h3.sub::after {
++  content: "";
++  height: 1px;
++  flex: 1;
++  background: var(--rule);
++}
++
++/* ---------- firing sequence ---------- */
++.sequence {
++  list-style: none;
++  margin: 0; padding: 0;
++  display: grid;
++  gap: 1px;
++  background: var(--rule);
++  border: 1px solid var(--rule);
++}
++.sequence li {
++  background: var(--surface);
++  padding: 0.85rem 1.05rem;
++  display: grid;
++  grid-template-columns: 8.5rem minmax(0, 1fr);
++  gap: 0.35rem 1.1rem;
++  align-items: baseline;
++}
++@media (max-width: 620px) {
++  .sequence li { grid-template-columns: minmax(0, 1fr); }
++}
++.sequence .when {
++  font-family: var(--mono);
++  font-size: 0.66rem;
++  letter-spacing: 0.09em;
++  text-transform: uppercase;
++  color: var(--ink-3);
++  font-weight: 600;
++}
++.sequence .what { font-size: 0.94rem; line-height: 1.5; }
++.sequence .what code { font-size: 0.86em; }
++.sequence li[data-signal="block"] { border-left: 3px solid var(--brick); }
++.sequence li[data-signal="warn"]  { border-left: 3px solid var(--gold); }
++.sequence li[data-signal="pass"]  { border-left: 3px solid var(--forest); }
++.sequence li[data-signal="none"]  { border-left: 3px solid var(--rule); }
++
++/* ---------- code ---------- */
++.code {
++  background: var(--code-bg);
++  border: 1px solid var(--rule);
++  border-radius: 3px;
++  overflow: hidden;
++}
++.code figcaption {
++  font-family: var(--mono);
++  font-size: 0.68rem;
++  letter-spacing: 0.06em;
++  padding: 0.55rem 0.9rem;
++  color: var(--ink-3);
++  border-bottom: 1px solid var(--rule);
++  background: var(--surface-2);
++  display: flex;
++  justify-content: space-between;
++  gap: 1rem;
++  flex-wrap: wrap;
++}
++.code figcaption .tag {
++  text-transform: uppercase;
++  font-weight: 700;
++  letter-spacing: 0.1em;
++  font-size: 0.6rem;
++}
++.code figcaption .tag.block { color: var(--brick); }
++.code figcaption .tag.warn  { color: var(--gold-ink); }
++.code figcaption .tag.pass  { color: var(--forest); }
++.code pre {
++  margin: 0;
++  padding: 0.95rem 1rem;
++  overflow-x: auto;
++  font-family: var(--mono);
++  font-size: 0.775rem;
++  line-height: 1.62;
++  color: var(--ink);
++  tab-size: 2;
++}
++code {
++  font-family: var(--mono);
++  font-size: 0.85em;
++  background: var(--code-bg);
++  padding: 0.1em 0.34em;
++  border-radius: 2px;
++}
++pre code { background: none; padding: 0; font-size: inherit; }
++.c-block  { color: var(--brick); }
++.c-warn   { color: var(--gold-ink); }
++.c-pass   { color: var(--forest); }
++.c-dim    { color: var(--ink-3); }
++
++/* ---------- diagrams ---------- */
++/* Mermaid source lives in the page and renders in the browser. The figure
++   body is transparent so the paper shows through the diagram; until the
++   script runs, the source is visible as text. */
++.code.diagram { background: none; }
++.code.diagram .mermaid {
++  margin: 0;
++  padding: 1rem;
++  overflow-x: auto;
++  font-family: var(--mono);
++  font-size: 0.775rem;
++  line-height: 1.62;
++  color: var(--ink-3);
++  text-align: center;
++}
++.code.diagram .mermaid svg {
++  max-width: 100%;
++  height: auto;
++  background: transparent;
++}
++
++/* ---------- callouts ---------- */
++.callout {
++  border: 1px solid var(--rule);
++  border-left: 4px solid var(--brick);
++  background: var(--brick-wash);
++  padding: 1rem 1.15rem;
++  border-radius: 2px;
++}
++.callout .label {
++  font-family: var(--mono);
++  font-size: 0.63rem;
++  letter-spacing: 0.14em;
++  text-transform: uppercase;
++  font-weight: 700;
++  color: var(--brick);
++  display: block;
++  margin-bottom: 0.4rem;
++}
++.callout p { font-size: 0.95rem; max-width: 62ch; }
++
++.takeaway {
++  border: 1px solid var(--rule);
++  border-left: 4px solid var(--forest);
++  background: var(--forest-wash);
++  padding: 1rem 1.15rem;
++  border-radius: 2px;
++}
++.takeaway .label {
++  font-family: var(--mono);
++  font-size: 0.63rem;
++  letter-spacing: 0.14em;
++  text-transform: uppercase;
++  font-weight: 700;
++  color: var(--forest);
++  display: block;
++  margin-bottom: 0.4rem;
++}
++.takeaway p { font-size: 0.95rem; max-width: 62ch; }
++
++/* ---------- data table ---------- */
++.tablewrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 3px; }
++table {
++  border-collapse: collapse;
++  width: 100%;
++  font-family: var(--mono);
++  font-size: 0.75rem;
++  min-width: 480px;
++}
++caption {
++  caption-side: top;
++  text-align: left;
++  padding: 0.55rem 0.9rem;
++  background: var(--surface-2);
++  border-bottom: 1px solid var(--rule);
++  font-size: 0.68rem;
++  letter-spacing: 0.06em;
++  color: var(--ink-3);
++}
++th, td {
++  padding: 0.4rem 0.9rem;
++  text-align: left;
++  border-bottom: 1px solid var(--rule-soft);
++  background: var(--surface);
++}
++th {
++  font-size: 0.62rem;
++  letter-spacing: 0.1em;
++  text-transform: uppercase;
++  color: var(--ink-3);
++  font-weight: 700;
++}
++td.num { text-align: right; font-variant-numeric: tabular-nums; }
++tr.total td {
++  border-top: 2px solid var(--rule);
++  border-bottom: 0;
++  font-weight: 700;
++  background: var(--surface-2);
++}
++tr.flag td { color: var(--brick); }
++tbody tr:last-child td { border-bottom: 0; }
++
++/* ---------- footer ---------- */
++footer {
++  padding: 3rem 0 0;
++  border-top: 3px double var(--rule);
++  margin-top: 3rem;
++  font-family: var(--mono);
++  font-size: 0.72rem;
++  color: var(--ink-3);
++  line-height: 1.8;
++  display: grid;
++  gap: 0.5rem;
++}
++footer strong { color: var(--ink-2); font-weight: 600; }
++
++/* ================= workshop additions ================= */
++
++/* The rail wraps rather than scrolling sideways: this page lives on a second
++   monitor for ninety minutes and nobody should have to drag it. */
++.railnav ol {
++  display: flex;
++  flex-wrap: wrap;
++  overflow: visible;
++  gap: 0.15rem 0.1rem;
++  scrollbar-width: none;
++}
++.railnav ol::-webkit-scrollbar { display: none; }
++.railnav li { flex: 0 1 auto; }
++.railnav a {
++  display: flex;
++  align-items: baseline;
++  gap: 0.45rem;
++  white-space: nowrap;
++}
++.railnav .clock {
++  font-size: 0.6rem;
++  color: var(--ink-3);
++  letter-spacing: 0.04em;
++  font-variant-numeric: tabular-nums;
++}
++@media (max-width: 720px) {
++  .railnav .clock { display: none; }
++}
++
++/* A clock chip in the section head, so the instructor can see the budget. */
++.stamp {
++  display: inline-flex;
++  align-items: baseline;
++  gap: 0.5rem;
++  font-family: var(--mono);
++  font-size: 0.66rem;
++  letter-spacing: 0.1em;
++  text-transform: uppercase;
++  color: var(--ink-3);
++  border: 1px solid var(--rule);
++  border-radius: 2px;
++  padding: 0.28rem 0.55rem;
++  margin-bottom: 0.9rem;
++}
++.stamp b {
++  color: var(--brick);
++  font-weight: 700;
++  font-variant-numeric: tabular-nums;
++}
++.stamp .mins { color: var(--ink-2); }
++
++/* Three block kinds, so the eye can tell teaching from typing at a glance. */
++.lab, .keystone, .behind {
++  border: 1px solid var(--rule);
++  border-radius: 2px;
++  padding: 1rem 1.15rem;
++}
++.lab {
++  border-left: 4px solid var(--gold);
++  background: var(--gold-wash);
++}
++.lab > .label {
++  font-family: var(--mono);
++  font-size: 0.63rem;
++  letter-spacing: 0.14em;
++  text-transform: uppercase;
++  font-weight: 700;
++  color: var(--gold-ink);
++  display: block;
++  margin-bottom: 0.55rem;
++}
++.lab .sequence { margin-top: 0.25rem; }
++.lab p { font-size: 0.95rem; max-width: 62ch; }
++
++.keystone {
++  border-left: 4px solid var(--ink-3);
++  background: var(--surface-2);
++}
++.keystone > .label {
++  font-family: var(--mono);
++  font-size: 0.63rem;
++  letter-spacing: 0.14em;
++  text-transform: uppercase;
++  font-weight: 700;
++  color: var(--ink-2);
++  display: block;
++  margin-bottom: 0.45rem;
++}
++.keystone p { font-size: 0.92rem; color: var(--ink-2); max-width: 64ch; }
++.keystone code { font-size: 0.85em; }
++
++.behind {
++  border-left: 4px solid var(--rule);
++  background: transparent;
++}
++.behind > .label {
++  font-family: var(--mono);
++  font-size: 0.63rem;
++  letter-spacing: 0.14em;
++  text-transform: uppercase;
++  font-weight: 700;
++  color: var(--ink-3);
++  display: block;
++  margin-bottom: 0.45rem;
++}
++.behind p { font-size: 0.92rem; color: var(--ink-2); max-width: 64ch; }
++
++/* The run-of-show table wants tabular numerals and a tight first column. */
++.tablewrap table.runsheet td:first-child,
++.tablewrap table.runsheet th:first-child {
++  font-variant-numeric: tabular-nums;
++  white-space: nowrap;
++  width: 7.5rem;
++}
++
++/* A scorecard rendered as a table of marks. */
++.matrix { font-family: var(--mono); font-size: 0.78rem; }
++.matrix td, .matrix th { text-align: center; }
++.matrix td:first-child, .matrix th:first-child { text-align: left; }
++.mk-pass { color: var(--forest); font-weight: 700; }
++.mk-fail { color: var(--brick); font-weight: 700; }
++.mk-na   { color: var(--gold-ink); font-weight: 700; }
++
++/* Two columns for the primitive map, collapsing on narrow screens. */
++.pair {
++  display: grid;
++  grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
++  gap: 1px;
++  background: var(--rule);
++  border: 1px solid var(--rule);
++  margin: 1.4rem 0;
++}
++.pair > div {
++  background: var(--surface);
++  padding: 1rem 1.1rem;
++}
++.pair h4 {
++  font-family: var(--mono);
++  font-size: 0.7rem;
++  letter-spacing: 0.12em;
++  text-transform: uppercase;
++  margin: 0 0 0.5rem;
++  color: var(--brick);
++  font-weight: 700;
++}
++.pair p { font-size: 0.9rem; color: var(--ink-2); }
++.pair ul { margin: 0.4rem 0 0; padding-left: 1.1rem; font-size: 0.9rem; }
++.pair li { margin-bottom: 0.3rem; color: var(--ink-2); }
++
++.chip.kind-mcp   { border-left-color: var(--forest); }
++.chip.kind-hook  { border-left-color: var(--brick); }
++.chip.kind-plugin{ border-left-color: var(--ink-3); }
++
++/* The page gets projected. A projector is not a laptop, so the instructor
++   needs to be able to force one theme regardless of the machine's setting. */
++.themetoggle {
++  position: fixed;
++  top: 0.75rem; right: 0.75rem;
++  z-index: 50;
++  font-family: var(--mono);
++  font-size: 0.62rem;
++  letter-spacing: 0.12em;
++  text-transform: uppercase;
++  color: var(--ink-3);
++  background: var(--surface);
++  border: 1px solid var(--rule);
++  border-radius: 2px;
++  padding: 0.35rem 0.6rem;
++  cursor: pointer;
++}
++.themetoggle:hover { color: var(--ink); border-color: var(--ink-3); }
++@media print { .themetoggle { display: none; } }
++</style>
++</head>
++<body>
++
++<button class="themetoggle" type="button" data-theme-toggle>theme</button>
++
++<div class="shell">
++  <header class="masthead">
++    <div class="eyebrow">
++      <span>AIDevCon · Harness Engineering</span>
++      <span class="sep">/</span>
++      <span>Workshop</span>
++      <span class="sep">/</span>
++      <span>90 minutes, laptops out</span>
++    </div>
++    <h1>Wrap it in a charter, <em>then prove it did something</em>.</h1>
++    <p class="standfirst">
++      You have an application you did not write, an agent that has already been let loose on it,
++      and a <code>CLAUDE.md</code> you do not entirely trust. In the next ninety minutes you wrap
++      that application in a charter one lever at a time — and measure each lever against the same
++      ticket. Three runs, nine checks, one matrix. Nothing outside the repository changes.
++    </p>
++    <p class="byline">
++      <span class="by">Run by</span>
++      <span class="name">Ian Johnson</span>
++      <span class="role">author of <em>Constraint Engineering</em> · tacoda.dev</span>
++    </p>
++
++    <div class="provenance">
++      the repo · <code>charter-workshop</code> — clone it before you sit down, see <code>SETUP.md</code><br>
++      the application · <strong>tarrasque</strong>, a play-session engine for tabletop campaigns. Python 3.11+, standard library, 141 tests, sub-second suite<br>
++      you'll need · Python 3.11 or newer, git, and the coding agent you already use<br>
++      the surface · Claude Code's primitives — <code>CLAUDE.md</code>, <code>.claude/</code>, <code>.mcp.json</code> — because a workshop has to pick one tool's file names<br>
++      staying portable · every primitive is mapped to its <a href="#s-8">Keystone</a> equivalent in §8, so nothing here is Claude-only<br>
++      the claim under test · the charter <em>alone</em> narrows the band. No custom harness, no orchestrator, no framework<br>
++      license · CC BY 4.0 for the material, MIT for the code. Fork it, change every rule, keep the instrument
++    </div>
++
++    <dl class="signals">
++      <div class="signal">
++        <span class="swatch block"></span>
++        <div>
++          <dt>Refused</dt>
++          <dd>The write did not happen. The bytes never reached disk and the agent got told why, inside the same turn.</dd>
++        </div>
++      </div>
++      <div class="signal">
++        <span class="swatch warn"></span>
++        <div>
++          <dt>Your turn</dt>
++          <dd>Hands on the keyboard. Gold blocks are the ones you type; everything else is on screen.</dd>
++        </div>
++      </div>
++      <div class="signal">
++        <span class="swatch pass"></span>
++        <div>
++          <dt>Clean</dt>
++          <dd>Nothing fired. Worth counting — and worth checking, because a clean report over a dirty tree is the failure mode that flatters everyone.</dd>
++        </div>
++      </div>
++    </dl>
++  </header>
++
++  <nav class="railnav" aria-label="Sections">
++    <ol>
++      <li><a href="#s-0"><span class="n">0</span> The claim <span class="clock">0:00</span></a></li>
++      <li><a href="#s-1"><span class="n">1</span> The repository <span class="clock">0:06</span></a></li>
++      <li><a href="#s-2"><span class="n">2</span> Run A · bare <span class="clock">0:12</span></a></li>
++      <li><a href="#s-3"><span class="n">3</span> What it reads <span class="clock">0:26</span></a></li>
++      <li><a href="#s-4"><span class="n">4</span> Run B <span class="clock">0:38</span></a></li>
++      <li><a href="#s-5"><span class="n">5</span> What it can do <span class="clock">0:46</span></a></li>
++      <li><a href="#s-6"><span class="n">6</span> What refuses it <span class="clock">0:58</span></a></li>
++      <li><a href="#s-7"><span class="n">7</span> The ceiling <span class="clock">1:10</span></a></li>
++      <li><a href="#s-8"><span class="n">8</span> What we built <span class="clock">1:18</span></a></li>
++      <li><a href="#s-9"><span class="n">9</span> Monday <span class="clock">1:26</span></a></li>
++    </ol>
++  </nav>
++
++  <!-- ============ 0 ============ -->
++  <section class="rung" id="s-0">
++    <div class="rung-head">
++      <div class="rung-index">
++        <span class="num">0</span>
++        <div class="meter" role="img" aria-label="The claim">
++          <i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
++        </div>
++        <span class="meter-label">The claim</span>
++      </div>
++      <div>
++        <span class="stamp"><b>0:00</b><span class="mins">6 minutes</span></span>
++        <h2>The charter alone moves the band. That is the claim, and it is falsifiable.</h2>
++        <p class="thesis">
++          Same agent, same model, same laptop, same ticket. Nothing changes but files in the
++          repository. By 1:10 you will have a matrix that says how far that got you on a codebase
++          you did not write — including, possibly, that it got you nowhere. The instrument is in
++          the repo precisely so the answer can come out against me.
++        </p>
++        <div class="chips">
++          <span class="chip kind-rule">CLAUDE.md</span>
++          <span class="chip kind-config">.claude/</span>
++          <span class="chip kind-mcp">.mcp.json</span>
++          <span class="chip kind-gate">and nothing else</span>
++        </div>
++      </div>
++    </div>
++
++    <div class="rung-body">
++      <h3 class="sub">The objection, first</h3>
++      <p>
++        A charter written in advance is a list of guesses. That is true, it is the strongest
++        argument against everything on this page, and I want it said out loud before we start
++        rather than raised at 1:20.
++      </p>
++      <p>
++        The best practices you would put in a charter on day one are the ones the model already
++        follows. The rules that matter are the ones your codebase taught you, and on day one you
++        do not know them yet. So the honest way to build a charter is to start with nothing and
++        add a rule only after something has gone wrong — which usually takes a year of bad days.
++      </p>
++      <p>
++        We do not have a year. We have ninety minutes, and the resolution is this: <strong>wrapping
++        an existing application is not authoring in advance.</strong> The first run <em>is</em> the
++        incident. The agent manufactures the evidence on demand, and every rule you write today
++        will point at a diff you watched it produce twenty minutes earlier.
++      </p>
++
++      <figure class="code">
++        <figcaption><span>two charters of the same length</span><span class="tag warn">only one survives a crunch</span></figcaption>
++<pre><code><span class="c-dim">AUTHORED</span>
++"Write clean, maintainable code."   <span class="c-block">← already true. Costs nothing, does nothing</span>
++"Handle errors appropriately."      <span class="c-block">← unfalsifiable</span>
++"Follow existing patterns."         <span class="c-block">← which era? The repo has three</span>
++
++<span class="c-dim">ACCRETED</span>
++"Every die comes from a seeded stream."
++                                    <span class="c-pass">← INC-2026-19, eleven sessions unverifiable</span>
++"The session log is append-only."   <span class="c-pass">← INC-2025-44, a total was corrected in place</span>
++"Authority comes from the session." <span class="c-pass">← INC-2026-08, a player rolled for someone else</span></code></pre>
++      </figure>
++
++      <h3 class="sub">Where we stop</h3>
++      <p>
++        Everything in <code>CLAUDE.md</code>, <code>.claude/</code> and <code>.mcp.json</code> is in
++        scope — <em>including the mechanical parts</em>. A hook is charter content: it is a file in
++        the repo, it is reviewed in the same diff as the rule it enforces, and it is the only
++        mechanical enforcement the agent could delete. A tool grant is charter content. A
++        sub-agent's refusal scope is charter content.
++      </p>
++      <p>
++        The moment enforcement has to move somewhere that reconfiguring the agent cannot reach — a
++        tool that refuses internally, a stage gate, a judge node, CI — we name it, write it on the
++        promotion report, and <strong>stop</strong>. That is the next rung up and it is a different
++        workshop. §7 draws the line and §8 shows you the whole ladder in one picture.
++      </p>
++
++      <div class="lab">
++        <span class="label">Your turn · two minutes</span>
++        <ol class="sequence">
++          <li data-signal="warn"><span class="when">now</span><span class="what">
++            <code>cd charter-workshop &amp;&amp; make doctor</code>
++          </span></li>
++          <li data-signal="none"><span class="when">expect</span><span class="what">
++            every line <code>ok</code> except possibly <code>ruff</code> and <code>mypy</code>, which
++            are optional. <code>note</code> is fine.
++          </span></li>
++          <li data-signal="block"><span class="when">if it fails</span><span class="what">
++            hand goes up now, not at 0:40. Everything after this depends on it.
++          </span></li>
++          <li data-signal="none"><span class="when">then</span><span class="what">
++            open your agent in this directory and leave it sitting there.
++          </span></li>
++        </ol>
++      </div>
++
++      <div class="takeaway">
++        <span class="label">What you leave with</span>
++        <p>
++          A matrix from your own machine, four working charter artifacts you keep, a filled-in
++          <code>HITLIST.md</code> about your own repository, and a promotion report with a line
++          drawn on it.
++        </p>
++      </div>
++    </div>
++  </section>
++
++  <!-- ============ 1 ============ -->
++  <section class="rung" id="s-1">
++    <div class="rung-head">
++      <div class="rung-index">
++        <span class="num">1</span>
++        <div class="meter" role="img" aria-label="The repository">
++          <i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
++        </div>
++        <span class="meter-label">The repository</span>
++      </div>
++      <div>
++        <span class="stamp"><b>0:06</b><span class="mins">6 minutes · I talk, you read</span></span>
++        <h2>Three eras deep, and they disagree with each other</h2>
++        <p class="thesis">
++          <strong>tarrasque</strong> runs a tabletop play session: it rolls the dice, tracks the turn
++          order, holds the condition timers, and writes an append-only log the table can read back.
++          It is not a toy, and it is not clean. It is the shape of a repository you would actually
++          be handed.
++        </p>
++        <div class="chips">
++          <span class="chip kind-rule">2026 · domain</span>
++          <span class="chip kind-cmd">2023 · the god file</span>
++          <span class="chip kind-hook">2021 · frozen</span>
++        </div>
++      </div>
++    </div>
++
++    <div class="rung-body">
++      <div class="tablewrap">
++        <table>
++          <caption>the three eras · the newest one is outnumbered, which is the whole problem</caption>
++          <thead>
++            <tr><th>where</th><th>when</th><th>what it looks like</th></tr>
++          </thead>
++          <tbody>
++            <tr>
++              <td><code>tarrasque/domain/</code></td><td>2026</td>
++              <td>Pure functions. An injected <code>Rng</code>. Every roll returns a <code>Roll</code>
++                  carrying its notation, its seed and its raw faces. Typed, tested, <strong>and
++                  outnumbered</strong>.</td>
++            </tr>
++            <tr>
++              <td><code>tarrasque/api/handlers.py</code></td><td>2023</td>
++              <td>The <code>/v1</code> god file. Each handler parses, queries, rolls and serializes
++                  inline. Calls <code>random.randint</code>. Reads <code>character_id</code> out of the
++                  request body. <strong>The dominant pattern by volume.</strong></td>
++            </tr>
++            <tr>
++              <td><code>tarrasque/legacy/tables.py</code></td><td>2021</td>
++              <td>Draws from the global <code>random</code> stream, keeps per-session state in a module
++                  level list, returns bare integers. Excluded from <code>mypy</code> and from
++                  <code>ruff</code>. Frozen — see <code>docs/adr/0004</code>.</td>
++            </tr>
++          </tbody>
++        </table>
++      </div>
++
++      <h3 class="sub">The same job, twice, eleven lines apart</h3>
++      <figure class="code">
++        <figcaption><span>what the agent will read before it writes anything</span><span class="tag block">imitation beats instruction</span></figcaption>
++<pre><code><span class="c-dim"># tarrasque/api/handlers.py — the /v1 surface, 2023</span>
++def post_save(connection, request):
++    body = json.loads(request.get("body") or "{}")
++    character_id = body.get("character_id")        <span class="c-block">← authority from the caller</span>
++    total = random.randint(1, 20) + modifier       <span class="c-block">← unseeded. Unreplayable</span>
++    return _json(200, {"total": total,             <span class="c-block">← a bare number</span>
++                       "success": total &gt;= dc})
++
++<span class="c-dim"># tarrasque/api/encounters.py — the /v2 surface, 2026</span>
++def post_check(connection, session, encounter_id, character_id):
++    require_control(connection, session, character_id)   <span class="c-pass">← authority from the session</span>
++    rng = stream_for(encounter_id, encounter.round_number, f"check:{character_id}")
++    result = dice.roll(rng, "1d20")                      <span class="c-pass">← seeded, addressed</span>
++    write_entries(connection, [encounter.entry("check", character_id,
++                                               {"roll": result.to_dict()})])
++    return _json(200, {"roll": result.to_dict()})        <span class="c-pass">← the receipt travels</span></code></pre>
++      </figure>
++
++      <p>
++        Both of those are in the repository right now. Both pass the test suite. One is eleven
++        hundred lines of precedent and the other is one file. An agent asked to add an endpoint
++        reads the repository and writes the eleven-hundred-and-first line, because the code is a
++        louder signal than any paragraph you can put above it.
++      </p>
++
++      <h3 class="sub">Four traps, and why each one is there</h3>
++      <div class="pair">
++        <div>
++          <h4>Opposed</h4>
++          <p>
++            <strong>Seeding</strong> and <strong>provenance</strong> and <strong>append-only</strong>
++            each have a working implementation in the repo that does the wrong thing, and no
++            correct exemplar on the path the agent will walk. If a rule wins here, the rule is what
++            won.
++          </p>
++        </div>
++        <div>
++          <h4>Two live patterns</h4>
++          <p>
++            <strong>Authority</strong> is done correctly in <code>encounters.py</code> and
++            incorrectly in <code>handlers.py</code>. The charter's job is not to invent a pattern;
++            it is to say <em>which of two real ones</em> to copy. That is most retrofits.
++          </p>
++        </div>
++        <div>
++          <h4>A working affordance</h4>
++          <p>
++            <code>queries.update_log_payload()</code> and <code>delete_log_from()</code> exist, work,
++            and are called by <code>/v1</code>. A function that does the forbidden thing is louder
++            than a rule forbidding it.
++          </p>
++        </div>
++        <div>
++          <h4>A comment that lies</h4>
++          <p>
++            <code>handlers.py</code> opens with <em>"every roll below goes through
++            tarrasque.domain.rng"</em>. It does not. <code>docs/ARCHITECTURE.md</code> describes a
++            repository layer the service never grew. Both outrank anything you write.
++          </p>
++        </div>
++      </div>
++
++      <div class="keystone">
++        <span class="label">Staying portable · Keystone</span>
++        <p>
++          Everything shown today uses Claude Code's file names because a workshop has to pick one
++          tool's. <a href="https://tacoda.dev/">Keystone</a> is the provider-agnostic version of the
++          same discipline: you author under <code>.charter/</code> in typed primitives, and
++          <code>keystone project</code> compiles them down to <code>.claude/</code>,
++          <code>.cursor/rules/*.mdc</code>, or a pointer block in <code>AGENTS.md</code>. The rule
++          that makes it work is that the projected files are build output —
++          <strong>editing <code>.claude/</code> in a Keystone repo is editing a compiled artifact.</strong>
++          §8 maps every primitive we install today onto its Keystone kind.
++        </p>
++      </div>
++
++      <div class="takeaway">
++        <span class="label">The sentence to carry into the next section</span>
++        <p>
++          Every agent PR is a measurement of your repository, not a verdict on the agent. What
++          comes back in fourteen minutes is a hotspot report.
++        </p>
++      </div>
++    </div>
++  </section>
++
++  <!-- ============ 2 ============ -->
++  <section class="rung" id="s-2">
++    <div class="rung-head">
++      <div class="rung-index">
++        <span class="num">2</span>
++        <div class="meter" role="img" aria-label="Run A">
++          <i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
++        </div>
++        <span class="meter-label">Run A · bare</span>
++      </div>
++      <div>
++        <span class="stamp"><b>0:12</b><span class="mins">14 minutes · the first run</span></span>
++        <h2>The baseline is the incident</h2>
++        <p class="thesis">
++          No charter. One ticket. Whatever comes back is the evidence every rule you write after
++          this will point at. Do not fix anything you see — capture it.
++        </p>
++        <div class="chips">
++          <span class="chip kind-make">make ticket</span>
++          <span class="chip kind-make">make score</span>
++          <span class="chip kind-make">make capture</span>
++        </div>
++      </div>
++    </div>
++
++    <div class="rung-body">
++      <h3 class="sub">The ticket</h3>
++      <p>
++        <strong>TAR-412 — a group saving throw.</strong> The Cinderwyrm breathes, six creatures are
++        in the cone, and the dungeon master wants one call instead of six. It is forty to seventy
++        lines. It rolls dice, it serializes an outcome, it reads tenant-scoped rows, it writes to
++        the log, and it sits next to a god file that will happily show you how to do all four
++        wrongly. One ticket, every trap.
++      </p>
++
++      <figure class="code">
++        <figcaption><span>tickets/TAR-412-group-save.md</span><span class="tag warn">the scope block is what the scorer reads</span></figcaption>
++<pre><code><span class="c-dim">---
++id: TAR-412
++size: medium
++scope:
++  - tarrasque/api/encounters.py
++  - tarrasque/domain/**
++  - tarrasque/http.py
++  - tests/**
++---</span>
++
++POST /v2/encounters/:encounter_id/saving-throws
++{ "ability": "dex", "dc": 17,
++  "combatants": ["chr_brann", "chr_sable", "npc_emberling"] }
++
++<span class="c-dim">Acceptance criteria</span>
++1. One outcome per combatant: the id, whether it succeeded, and the
++   roll that decided it.
++2. <span class="c-pass">Re-running against the same encounter state produces the same rolls.</span>
++3. Every roll lands in the session log, in order, with no gaps.
++4. <span class="c-pass">A player may request a save only for combatants their session controls.</span>
++5. `make verify` is green.</code></pre>
++      </figure>
++
++      <div class="lab">
++        <span class="label">Your turn · ten minutes</span>
++        <ol class="sequence">
++          <li data-signal="warn"><span class="when">1 · read</span><span class="what">
++            <code>make ticket TICKET=TAR-412</code> — then paste it to your agent exactly as it is.
++            No extra briefing. No "and remember to…". That instinct is the thing we are measuring.
++          </span></li>
++          <li data-signal="warn"><span class="when">2 · run</span><span class="what">
++            Let it work. Do not steer, do not correct, do not answer questions with hints. If it
++            asks something, tell it to use its judgement.
++          </span></li>
++          <li data-signal="warn"><span class="when">3 · score</span><span class="what">
++            <code>make score TICKET=TAR-412</code>
++          </span></li>
++          <li data-signal="pass"><span class="when">4 · freeze</span><span class="what">
++            <code>make capture RUN=00-bare TICKET=TAR-412</code> — writes the diff and the scorecard
++            to <code>runs/00-bare/</code>, then leaves your tree alone.
++          </span></li>
++          <li data-signal="block"><span class="when">5 · reset</span><span class="what">
++            <code>git checkout -- . &amp;&amp; git clean -fd tarrasque tests</code> — back to bare.
++            The capture survives.
++          </span></li>
++        </ol>
++      </div>
++
++      <h3 class="sub">Nine checks, and one of them is a hole</h3>
++      <p>
++        Eight are decidable and run in <code>tools/charter_check.py</code>. The ninth is not. It
++        prints <span class="mk-na">?</span> and it will keep printing <span class="mk-na">?</span>
++        until §6. <strong>The hole in the scorecard is the pedagogy</strong>, not an oversight: it
++        is the part of a charter that no predicate will ever hold, and a scorecard that quietly
++        rendered it green would be lying to you.
++      </p>
++
++      <div class="tablewrap">
++        <table>
++          <caption>the scorecard · eight predicates and one judgement</caption>
++          <thead><tr><th></th><th>check</th><th>what it settles</th><th>kind</th></tr></thead>
++          <tbody>
++            <tr><td>C1</td><td><code>scope.allowed-paths</code></td><td>the diff stayed inside the ticket</td><td>deterministic</td></tr>
++            <tr><td>C2</td><td><code>dice.seeded</code></td><td>every roll came from a seeded stream</td><td>deterministic</td></tr>
++            <tr><td>C3</td><td><code>roll.provenance</code></td><td>no outcome serialized without its receipt</td><td>deterministic</td></tr>
++            <tr><td>C4</td><td><code>log.append-only</code></td><td>the log was appended, never rewritten</td><td>deterministic</td></tr>
++            <tr><td>C5</td><td><code>legacy.frozen</code></td><td>the 2021 tables were left alone</td><td>deterministic</td></tr>
++            <tr><td>C6</td><td><code>authority.session-derived</code></td><td>no identity read from caller input</td><td>deterministic — <em>the shadow only</em></td></tr>
++            <tr><td>C7</td><td><code>tests.not-self-approving</code></td><td>no existing assertion was edited away</td><td>deterministic</td></tr>
++            <tr><td>C8</td><td><code>verify.green</code></td><td><code>make verify</code> exits 0</td><td>deterministic</td></tr>
++            <tr><td>C9</td><td><code>authority.semantic</code></td><td>the control check is <em>right for this feature</em></td><td><strong>inferential</strong></td></tr>
++          </tbody>
++        </table>
++      </div>
++
++      <div class="callout">
++        <span class="label">The instrument measures what this run wrote, not what it inherited</span>
++        <p>
++          An agent that appends one function to the god file would otherwise be charged with that
++          file's entire existing debt, which flatters every lever equally and measures nothing. So
++          the scorer intersects the predicate's findings with the lines the diff actually
++          <em>added</em>. This is the second bug I found in my own instrument; the first was a
++          report that pooled two rules together and erased the only variable under study.
++        </p>
++      </div>
++
++      <h3 class="sub">What usually comes back</h3>
++      <figure class="code">
++        <figcaption><span>a real capture, no charter installed</span><span class="tag block">4 / 8 decidable</span></figcaption>
++<pre><code>  ticket        TAR-412
++  files changed 4
++  lines         +50 / -0
++
++   <span class="c-block">FAIL</span>  C1  scope.allowed-paths          (1)
++            · out of scope: tarrasque/api/handlers.py
++   <span class="c-block">FAIL</span>  C2  dice.seeded                  (1)
++            · handlers.py:279 random.randint(); an unseeded roll cannot be
++              replayed from the log
++   <span class="c-block">FAIL</span>  C3  roll.provenance              (1)
++            · handlers.py:280 serializes ['total'] with no notation or seed
++   <span class="c-block">FAIL</span>  C4  log.append-only              (1)
++            · handlers.py:286 update_log_payload() rewrites history
++   <span class="c-pass">PASS</span>  C5  legacy.frozen
++   <span class="c-pass">PASS</span>  C6  authority.session-derived
++   <span class="c-pass">PASS</span>  C7  tests.not-self-approving
++   <span class="c-pass">PASS</span>  C8  verify.green
++    <span class="c-warn">?</span>    C9  authority.semantic           n/a — inferential
++
++  4/8 decidable checks pass   ·   C9 needs a reader</code></pre>
++      </figure>
++
++      <p>
++        Read the shape rather than the score. The agent put the endpoint on the <strong>wrong
++        surface</strong> — it found the god file, matched it, and never opened
++        <code>encounters.py</code>. Everything after that followed: the god file rolls unseeded, so
++        this does; the god file returns bare totals, so this does; the god file rewrites the log,
++        so this does. One imitation decision produced four findings.
++      </p>
++      <p>
++        <strong>C8 passed.</strong> The tests are green. Whatever your agent wrote, it works. That is
++        the uncomfortable part and it is why the other eight columns exist.
++      </p>
++
++      <div class="behind">
++        <span class="label">If you are behind, or your laptop lost</span>
++        <p>
++          <code>make reference</code> prints the matrix from runs shipped in the repository, without
++          invoking a model. You will read results instead of producing them. That is worse, and it
++          is not nothing — and the captured diffs are real files you can open.
++        </p>
++      </div>
++
++      <div class="takeaway">
++        <span class="label">Before we write a single rule</span>
++        <p>
++          Run <code>make audit</code>. It finds the comments in this repo that make a claim about
++          the whole codebase, the prose describing an architecture that moved, and the working
++          affordances for things we are about to forbid. <strong>Deleting a false signal is worth
++          more than adding a true rule</strong>, because the code outranks the prose. Delete the
++          lying comment at the top of <code>handlers.py</code> now. It takes ten seconds and it is
++          the highest-return edit in the next hour.
++        </p>
++      </div>
++    </div>
++  </section>
++
++  <!-- ============ 3 ============ -->
++  <section class="rung" id="s-3">
++    <div class="rung-head">
++      <div class="rung-index">
++        <span class="num">3</span>
++        <div class="meter" role="img" aria-label="What the agent reads">
++          <i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i>
++        </div>
++        <span class="meter-label">What it reads</span>
++      </div>
++      <div>
++        <span class="stamp"><b>0:26</b><span class="mins">12 minutes · levers 1 and 2</span></span>
++        <h2>Describe the present tense, then name what binds</h2>
++        <p class="thesis">
++          Two levers, one idea: everything the agent reads before it acts. The root file says what
++          this codebase <em>is</em>. The rule files say which lines are load-bearing and what each
++          one cost. Neither can refuse anything, and both are still the cheapest thing you own.
++        </p>
++        <div class="chips">
++          <span class="chip kind-rule">CLAUDE.md</span>
++          <span class="chip kind-rule">.claude/rules/*.md</span>
++        </div>
++      </div>
++    </div>
++
++    <div class="rung-body">
++      <h3 class="sub">Lever 1 · the file read on every turn</h3>
++      <p>
++        <code>CLAUDE.md</code> fires on everything. A path-scoped rule fires when its path is
++        touched; a skill fires when it triggers; a hook fires on its event. This one is in the
++        window when the agent picks a variable name. That reach is why it is powerful and why a
++        wrong line in it is expensive: the mistake fires on every token.
++      </p>
++      <p>
++        Eight sections, 800–1500 words, and <strong>none of them is "our engineering philosophy"</strong>.
++        A 2,000-word file is read. A 12,000-word file is skimmed, and by the eight-hundredth token
++        the agent is acting as though the rest does not exist — which is the correct response,
++        because the rest is wallpaper.
++      </p>
++
++      <figure class="code">
++        <figcaption><span>CLAUDE.md · the paragraph that does most of the work</span><span class="tag pass">652 words total</span></figcaption>
++<pre><code><span class="c-dim">## How this codebase is actually built</span>
++
++Three eras, and they disagree with each other. This is the most
++important paragraph in the file.
++
++- `tarrasque/domain/` — the newest layer and the correct one. Pure
++  functions, injected `Rng`, `Roll` carries its receipt.
++- `tarrasque/api/handlers.py` — the /v1 surface, 2023. <span class="c-block">The dominant
++  pattern by volume, and not the one to copy.</span>
++- `tarrasque/legacy/tables.py` — 2021. <span class="c-block">Frozen</span> — see ADR 0004.
++
++<span class="c-pass">**Match the layer you are working in, not the file you happened
++to open.**</span> New work goes in `tarrasque/domain/` and
++`tarrasque/api/encounters.py`. Do not carry the /v1 pattern forward,
++and do not migrate /v1 to the new pattern unless the ticket is
++explicitly a migration.
++
++<span class="c-dim">## What this repo is not</span>
++
++- `/v1` is deprecated. Not deleted, not refactored, not extended.
++- `tarrasque/legacy/` is frozen. Do not import it from new code.
++- <span class="c-warn">`docs/ARCHITECTURE.md` describes the 2.0 design. Parts of it are
++  no longer true. Trust the code.</span></code></pre>
++      </figure>
++
++      <p>
++        Three things earn their place there. The <strong>era paragraph</strong>, because without it
++        "follow existing patterns" resolves to the god file. The <strong>mixed-codebase rule</strong>
++        — match the layer you are in — because without it an agent handed an honest description of
++        a contradictory repo will either drag the new pattern into old files or spread the old one,
++        and both are failures of the same missing sentence. And the <strong>admission that a document
++        in the repo is wrong</strong>, because you cannot always delete the lie, and naming it is
++        the next best thing.
++      </p>
++
++      <h3 class="sub">Lever 2 · three tiers, and four parts per rule</h3>
++      <p>
++        A file that mixes a refuse-on-violation security rule with a naming preference, presented
++        as equal-weight bullets, teaches everyone to read every line at the strongest weight. The
++        vocabulary is mine, not the tool's — a stock harness reads a rule file as undifferentiated
++        text — and it has earned its keep because the marker forces the author to decide the
++        strength before shipping the line.
++      </p>
++
++      <figure class="code">
++        <figcaption><span>.claude/rules/dice.md</span><span class="tag block">every rule names the day it cost something</span></figcaption>
++<pre><code><span class="c-dim">---
++scope: "tarrasque/**/*.py"
++owner: platform-lead
++last_reviewed: 2026-09-01
++---</span>
++
++<span class="c-block">**IRON.**</span> Every die result in this service comes from an `Rng`
++stream. Do not import `random`, do not call `random.*`, and do not
++call into `tarrasque/legacy/tables.py`, which does both. The only
++module permitted to import `random` is `tarrasque/domain/rng.py`.
++
++<span class="c-warn">*Why this is iron:*</span> 2026-04-18 · INC-2026-19 · a player disputed a
++session's rolls and we could not answer. Eleven sessions of logs
++turned out to be unverifiable. The engine had been right; we had no
++way to show it.
++
++<span class="c-pass">*Enforced by:*</span> `tools/charter_check.py`, rule `dice.seeded`.
++Escape: `# seeded-gate: allow - &lt;reason&gt;` on the line.
++
++*Traces to:* a log you cannot replay is a transcript, not evidence.</code></pre>
++      </figure>
++
++      <div class="pair">
++        <div>
++          <h4>1 · the rule</h4>
++          <p>Behavioural and specific to this system. "Every die comes from an <code>Rng</code> stream" is a rule. "Be careful with randomness" is a mood.</p>
++        </div>
++        <div>
++          <h4>2 · the altitude</h4>
++          <p><code>gate</code>, <code>check</code>, <code>human</code>, or <code>none</code>. Writing it down forces the question <em>does anything enforce this</em>, which is uncomfortable about a third of the time.</p>
++        </div>
++        <div>
++          <h4>3 · the date and the link</h4>
++          <p>So it can be looked up, and so §7's review is possible at all. Also tells a reader whether the rule is from a world that still exists.</p>
++        </div>
++        <div>
++          <h4>4 · the damage</h4>
++          <p>In the units the business uses. <em>Eleven sessions unverifiable</em> wins an argument under deadline pressure. <em>It caused a bug</em> loses it.</p>
++        </div>
++      </div>
++
++      <div class="lab">
++        <span class="label">Your turn · six minutes</span>
++        <ol class="sequence">
++          <li data-signal="warn"><span class="when">1 · write one</span><span class="what">
++            Open <code>.claude/rules/authority.md</code> — no, open a scratch file. Write
++            <strong>one</strong> rule with all four parts, for the failure <em>your own</em> baseline
++            run produced fifteen minutes ago. Not a rule you believe in. The one you just watched
++            cost you.
++          </span></li>
++          <li data-signal="warn"><span class="when">2 · pick its tier</span><span class="what">
++            IRON only if a violation costs something the team would refuse to pay, ever. Most rules
++            are GOLDEN, and a GOLDEN rule that is silent on its exception collapses into whichever
++            tier the reader feels like.
++          </span></li>
++          <li data-signal="pass"><span class="when">3 · apply the rest</span><span class="what">
++            <code>make lever N=1</code> then <code>make lever N=2</code> — lands the full
++            <code>CLAUDE.md</code> and four rule files. Read the one that covers the failure you
++            just wrote up and see whether yours says it better.
++          </span></li>
++          <li data-signal="none"><span class="when">4 · check</span><span class="what">
++            <code>make levers</code> — confirms what is installed.
++          </span></li>
++        </ol>
++      </div>
++
++      <div class="callout">
++        <span class="label">The cardinal sin, said once</span>
++        <p>
++          An aspirational rule teaches the agent to lie. Write <em>"all I/O here is async"</em> over a
++          90%-synchronous service and one of two things happens. Either the agent discounts the rule
++          and matches the code — annoying, recoverable — or it obeys, the new code lands, the next
++          run reads that code as evidence, and the rule has bootstrapped its own contradiction into
++          the imitation surface. Then the codebase teaches two truths to every future run. Check the
++          files on disk the day you write the rule, not the wiki.
++        </p>
++      </div>
++
++      <div class="keystone">
++        <span class="label">Staying portable · Keystone</span>
++        <p>
++          Both of these are the <strong>guide</strong> primitive: proactive input, loaded ambient,
++          applied by judgement, glob-scoped so it activates on the files actually touched. In
++          Keystone you write one <code>.charter/guides/dice.md</code> with <code>kind: guide</code> and
++          a <code>globs:</code> field in its frontmatter; projection emits a rule shim under
++          <code>.claude/rules/</code>, a <code>.cursor/rules/dice.mdc</code> with the globs mirrored
++          verbatim, and a pointer block in <code>AGENTS.md</code> for everything else. One canonical
++          file, every host's dialect. The tier marker travels in the body, because it is a team
++          convention rather than a tool feature — in either world.
++        </p>
++      </div>
++
++      <div class="takeaway">
++        <span class="label">The test for any line you are about to add</span>
++        <p>
++          Can you name the specific thing that went wrong without it? If not, you are writing a
++          wish. Wishes are free to add and impossible to remove, which is the exact combination
++          that produces a charter nobody reads.
++        </p>
++      </div>
++    </div>
++  </section>
++
++  <!-- ============ 4 ============ -->
++  <section class="rung" id="s-4">
++    <div class="rung-head">
++      <div class="rung-index">
++        <span class="num">4</span>
++        <div class="meter" role="img" aria-label="Run B">
++          <i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i>
++        </div>
++        <span class="meter-label">Run B</span>
++      </div>
++      <div>
++        <span class="stamp"><b>0:38</b><span class="mins">8 minutes · the second run</span></span>
++        <h2>Same ticket, same agent, one charter later</h2>
++        <p class="thesis">
++          This is the first measurement that means anything, because it is a comparison rather than
++          an opinion.
++        </p>
++      </div>
++    </div>
++
++    <div class="rung-body">
++      <div class="lab">
++        <span class="label">Your turn · eight minutes</span>
++        <ol class="sequence">
++          <li data-signal="none"><span class="when">1 · fresh session</span><span class="what">
++            Start a new agent session. A session that already saw the first attempt is not a second
++            measurement of anything.
++          </span></li>
++          <li data-signal="warn"><span class="when">2 · same ticket</span><span class="what">
++            <code>make ticket TICKET=TAR-412</code>, pasted exactly as before. Same words. The
++            charter is the only variable.
++          </span></li>
++          <li data-signal="pass"><span class="when">3 · capture</span><span class="what">
++            <code>make capture RUN=01-reads TICKET=TAR-412</code>
++          </span></li>
++          <li data-signal="pass"><span class="when">4 · compare</span><span class="what">
++            <code>make compare</code>
++          </span></li>
++          <li data-signal="block"><span class="when">5 · reset</span><span class="what">
++            <code>git checkout -- . &amp;&amp; git clean -fd tarrasque tests</code>
++          </span></li>
++        </ol>
++      </div>
++
++      <h3 class="sub">What moves, and what does not</h3>
++      <figure class="code">
++        <figcaption><span>make compare</span><span class="tag warn">two columns is already a finding</span></figcaption>
++<pre><code>  check                              00-bare      01-reads
++  ----------------------------------------------------------
++  C1 scope.allowed-paths               <span class="c-block">✗</span>            <span class="c-pass">✓</span>
++  C2 dice.seeded                       <span class="c-block">✗</span>            <span class="c-pass">✓</span>
++  C3 roll.provenance                   <span class="c-block">✗</span>            <span class="c-pass">✓</span>
++  C4 log.append-only                   <span class="c-block">✗</span>            <span class="c-pass">✓</span>
++  C5 legacy.frozen                     <span class="c-pass">✓</span>            <span class="c-pass">✓</span>
++  C6 authority.session-derived         <span class="c-pass">✓</span>            <span class="c-pass">✓</span>
++  C7 tests.not-self-approving          <span class="c-pass">✓</span>            <span class="c-pass">✓</span>
++  C8 verify.green                      <span class="c-pass">✓</span>            <span class="c-pass">✓</span>
++  C9 authority.semantic                <span class="c-warn">?</span>            <span class="c-warn">?</span>
++  ----------------------------------------------------------
++  decidable passed                     4            8
++  files changed                        4            3
++  lines added                          50           61</code></pre>
++      </figure>
++
++      <p>
++        The interesting column is not the one that went green. It is <strong>C9, which is still a
++        question mark</strong>, and <strong>C5 and C6, which were green in both arms</strong>.
++      </p>
++      <p>
++        A rule the code already demonstrates measures nothing. That is not a small caveat — it is
++        the confound that killed the first version of an experiment I published, where I nearly
++        reported "prose is worthless" because I had chosen a rule the surrounding code already
++        obeyed. Removing the prose left the code standing, the outcome did not move, and the
++        instrument was measuring the imitation surface rather than the charter. The three rules
++        that <em>did</em> move here are the three the repository actively contradicts.
++      </p>
++
++      <div class="callout">
++        <span class="label">If your run came out differently — say so</span>
++        <p>
++          A clean baseline, or a lever that moved nothing, is a real result and the instrument was
++          built to report it. <strong>n is one per person here.</strong> The room is the sample, and
++          I will collect the disagreements before we move on. Nothing on this page has statistical
++          significance and you should not quote any of it as though it did.
++        </p>
++      </div>
++
++      <div class="takeaway">
++        <span class="label">What you just proved, and what you did not</span>
++        <p>
++          Prose beat imitation where the two <em>conflicted</em>. You have not shown that prose beats
++          imitation generally, and you have not touched the column that needs a reader. That is the
++          next two sections.
++        </p>
++      </div>
++    </div>
++  </section>
++
++  <!-- ============ 5 ============ -->
++  <section class="rung" id="s-5">
++    <div class="rung-head">
++      <div class="rung-index">
++        <span class="num">5</span>
++        <div class="meter" role="img" aria-label="What the agent can do">
++          <i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i>
++        </div>
++        <span class="meter-label">What it can do</span>
++      </div>
++      <div>
++        <span class="stamp"><b>0:46</b><span class="mins">12 minutes · lever 3</span></span>
++        <h2>The other half of the charter, and the half nobody designs</h2>
++        <p class="thesis">
++          A charter is easy to read as a list of prohibitions. Most of a working one is not. It is
++          the set of things the agent can do <em>at all</em> — and teams install those without
++          designing them, because installing feels free. It is not free.
++        </p>
++        <div class="chips">
++          <span class="chip kind-cmd">command</span>
++          <span class="chip kind-skill">skill</span>
++          <span class="chip kind-agent">sub-agent</span>
++          <span class="chip kind-mcp">MCP server</span>
++          <span class="chip kind-plugin">plugin</span>
++          <span class="chip kind-config">grant</span>
++        </div>
++      </div>
++    </div>
++
++    <div class="rung-body">
++      <h3 class="sub">The family test, run backwards</h3>
++      <p>
++        Remove the thing and ask what changed. If the agent can do <strong>less</strong>, it was a
++        capability. If the agent can do <strong>more</strong>, it was a constraint and it is on the
++        wrong ladder — and writing a constraint as a capability is how it stops being obeyed. A
++        skill that says <em>always run the formatter</em> reads like a capability and behaves like a
++        rule; it belongs in §3, at whatever tier §3 chose.
++      </p>
++      <p>
++        Every capability carries four attributes. Three have obvious counterparts on the constraint
++        side. The fourth does not exist there at all, because a constraint never has to be found.
++      </p>
++
++      <div class="tablewrap">
++        <table>
++          <caption>four attributes · collapse any two and you have installed a file, not a design</caption>
++          <thead><tr><th>attribute</th><th>the question it answers</th><th>where it is written</th></tr></thead>
++          <tbody>
++            <tr><td><strong>trigger</strong></td><td>who invokes this, and how do they find it?</td><td>the <code>description</code> line</td></tr>
++            <tr><td><strong>rung</strong></td><td>what carries it, and how much can the model reinterpret?</td><td>which directory it lives in</td></tr>
++            <tr><td><strong>grant</strong></td><td>what may it touch while it runs?</td><td><code>allowed-tools</code> / <code>tools</code></td></tr>
++            <tr><td><strong>return</strong></td><td>what crosses back, and what stays behind?</td><td>the body, stated explicitly</td></tr>
++          </tbody>
++        </table>
++      </div>
++
++      <h3 class="sub">Four rungs, from a macro to a process</h3>
++      <figure class="code">
++        <figcaption><span>the ladder, and what each rung costs you on every turn</span><span class="tag warn">standing cost is the one you pay whether it fires or not</span></figcaption>
++<pre><code><span class="c-dim">RUNG          TRIGGER            STANDING COST        BOUNDARY</span>
++0  command    a human types it   a name + one line    <span class="c-block">none</span>
++                                 (zero if model
++                                 invocation is off)
++
++1  skill      the model, from    a name + one line,   <span class="c-warn">convention</span>
++              a description      every turn
++
++2  sub-agent  the parent turn    a name + one line    <span class="c-pass">context</span>
++                                 <span class="c-pass">← the only rung that gives context back</span>
++
++3  MCP        the model, by      <span class="c-block">every declared tool's</span>  <span class="c-pass">process</span>
++   server     schema             <span class="c-block">full schema, every turn</span>
++
++<span class="c-dim">   plugin     not a rung. It is who owns the rungs.</span></code></pre>
++      </figure>
++
++      <p>
++        Four questions place it, and you stop at the first one that decides. <strong>Who notices the
++        need?</strong> A human, at a moment of their choosing, means a command.
++        <strong>Does the work belong in another window?</strong> Bulk reading, wide search, anything
++        whose byproduct is bigger than its answer, means a sub-agent — the only rung that hands
++        context <em>back</em>. <strong>Does it need a process wall?</strong> Several clients, an
++        interactive sign-in, a vendor's server, a versioned contract: that is MCP. Repeatability is
++        not on that list, because a bundled script gives you that for nothing.
++        <strong>Otherwise it is a skill.</strong>
++      </p>
++
++      <h3 class="sub">What we install, and why each sits where it does</h3>
++
++      <figure class="code">
++        <figcaption><span>.claude/commands/ticket.md</span><span class="tag pass">rung 0 · a rehearsed prompt with its evidence stapled on</span></figcaption>
++<pre><code><span class="c-dim">---
++description: Start a ticket with its text, its scope, and the current diff
++             already in the window
++argument-hint: [ticket-id]
++allowed-tools: Bash(make ticket:*), Bash(make gate:*), Bash(git diff:*)
++disable-model-invocation: true</span>        <span class="c-pass">← standing cost: zero</span>
++<span class="c-dim">---</span>
++
++The ticket:
++!`make ticket TICKET=$1`                <span class="c-pass">← ! runs it and drops the output in</span>
++
++What has changed so far:
++!`git diff --stat HEAD`
++
++The charter's verdict on what has changed so far:
++!`make gate`
++
++Read @CLAUDE.md and the rule files under @.claude/rules/ that match
++the paths in the ticket's scope. Then implement the ticket.
++
++<span class="c-warn">Before you write anything, say in two sentences which of the three
++eras named in CLAUDE.md this work belongs to, and which files you
++will therefore *not* copy from.</span></code></pre>
++      </figure>
++
++      <p>
++        Three lines there do the work. <code>$1</code> makes the file a function rather than a note.
++        The <code>!</code> prefix collects the evidence <em>before</em> the model starts, so it
++        cannot forget to look. And <code>disable-model-invocation</code> takes the description out of
++        the standing bill — the right default for anything a human always initiates.
++      </p>
++
++      <figure class="code">
++        <figcaption><span>.claude/skills/add-endpoint/SKILL.md</span><span class="tag warn">rung 1 · a sequence, which is not a rule</span></figcaption>
++<pre><code><span class="c-dim">---
++name: add-endpoint
++description: Add an endpoint to the v2 surface of the tarrasque service.
++  Use when a ticket asks for a new route, a new HTTP verb on an existing
++  route, or a new action a table can take during an encounter. Covers the
++  session, domain, serialization and logging steps this repository
++  requires, in order.</span>                <span class="c-warn">← the trigger. Caller's words, not yours</span>
++<span class="c-dim">allowed-tools: Read, Edit, Write, Grep, Glob, Bash(make verify:*),
++  Bash(python3 .claude/skills/add-endpoint/scripts/check_route.py:*)
++---</span>
++
++1. <span class="c-pass">Read the neighbour.</span> Open tarrasque/api/encounters.py and read the
++   closest existing handler end to end. <span class="c-block">Do NOT open handlers.py for an
++   example; it is the wrong era.</span>
++2. Domain first. A decision goes in tarrasque/domain/ as a pure
++   function, with tests, before the handler exists.
++3. Session, then control. require_control(...) before acting for a
++   combatant. Never read an identity out of the body.
++4. Roll through a stream. stream_for(encounter_id, round, salt).
++5. Serialize the receipt. Roll.to_dict().
++6. Append to the log, in the same request.
++7. Register the route, then run:
++       scripts/check_route.py
++   <span class="c-pass">Do not reimplement this check by reading the file yourself.</span>
++8. Test the refusals, not only the success.
++9. make verify.
++
++<span class="c-dim">## Halt conditions</span>
++Stop and ask rather than choosing, when:
++- the ticket does not say who may call the endpoint
++- implementing it needs a change to tarrasque/legacy/
++- <span class="c-block">an existing test would have to change for your work to pass</span></code></pre>
++      </figure>
++
++      <p>
++        <strong>A rule bounds one move; a skill walks a job.</strong> The test is mechanical: if you
++        catch yourself writing a rule with the word <em>then</em> in it, you are writing a sequence,
++        and a sequence does not belong in the rules directory. That is why endpoints in this repo
++        kept arriving half-finished — the handler landed and the log entry did not, because nothing
++        told the agent how many moves were in the job.
++      </p>
++      <p>
++        Note step 7. <code>check_route.py</code> is a <strong>bundled script</strong>: no standing
++        cost, no schema, no process, and the same answer every time. It is the cheapest determinism
++        on the ladder, and it is what you reach for before you reach for a server.
++      </p>
++
++      <figure class="code">
++        <figcaption><span>.claude/agents/charter-auditor.md</span><span class="tag pass">rung 2 · a narrow grant and a stated return</span></figcaption>
++<pre><code><span class="c-dim">---
++name: charter-auditor
++description: Audit a change against the charter and report violations with
++  file and line. Use before opening a pull request, when a reviewer disputes
++  a rule, or when asked whether a change conforms.</span>
++<span class="c-pass">tools: Read, Grep, Glob, Bash(git diff:*), Bash(make gate:*)</span>   <span class="c-pass">← no write tool</span>
++<span class="c-dim">model: sonnet
++---</span>
++
++You do not fix anything and you do not write files. You hold no write
++tool, and that is deliberate: <span class="c-block">a reviewer that can edit the thing it
++reviews is not a reviewer.</span>
++
++`make gate` already reports the decidable rules. Do not repeat what it
++found. Your job is the part no predicate settles: ...
++
++<span class="c-warn">Return exactly this shape and nothing else:</span>
++
++    path:line · &lt;concern&gt; · &lt;what is wrong, in one sentence&gt;
++    VERDICT: &lt;pass|fail&gt; · N finding(s) across M file(s)</code></pre>
++      </figure>
++
++      <p>
++        Two lines carry that file. The <code>tools:</code> line is a <strong>grant</strong>, and a
++        grant left off is a grant inherited by accident — the sub-agent silently holds everything
++        the parent held, including the write tool. The return block is the
++        <strong>interface</strong>: a sub-agent with an unstated return shape returns prose, and
++        prose is exactly what you were trying to keep out of the parent's window.
++      </p>
++
++      <h3 class="sub">The MCP server we are about to delete</h3>
++      <figure class="code">
++        <figcaption><span>.mcp.json</span><span class="tag block">read it, then delete it — that is the exercise</span></figcaption>
++<pre><code>{
++  "mcpServers": {
++    "charter": {
++      "command": "python3",
++      "args": ["tools/charter_mcp.py"],
++      "$note": "one tool: check_files(files) -> {clean, problems}"
++    }
++  }
++}</code></pre>
++      </figure>
++
++      <p>
++        One tool. Your language. No credentials. No network. No other client. That is a
++        <strong>script in a skill</strong>, and it costs one line where the server costs a full
++        schema in every turn of every session anyone opens in this repository, forever. I have
++        written this server twice and deleted it twice.
++      </p>
++      <p>
++        Keep MCP for the five cases that earn it: several clients need the same access, sign-in is
++        an interactive flow the model must not handle, the surface is broad enough that typed
++        discovery pays for itself, a vendor already ships one, or other teams need a versioned
++        contract. And remember what comes back through the wall is text landing next to your
++        instructions — a tool that reaches content other people wrote is returning an untrusted
++        string into a context that treats strings as instructions.
++      </p>
++
++      <h3 class="sub">The grant · permissions are the mechanism, intent is what you meant</h3>
++      <p>
++        A permission rule answers one question: may this string run? The question you actually have
++        is different: is this <em>work</em> permitted? Every allowlist is a lossy translation between
++        the two, and the loss is where accidental grants live. The repair is to point the list at
++        <strong>make targets</strong>, because a target is a unit of intent somebody decided on, and
++        adding one is a reviewed change to the Makefile.
++      </p>
++
++      <div class="lab">
++        <span class="label">Your turn · five minutes · no model call needed</span>
++        <ol class="sequence">
++          <li data-signal="warn"><span class="when">1 · apply</span><span class="what">
++            <code>make lever N=3</code> — lands the command, the skill, the sub-agent, an
++            <code>.mcp.json</code>, and a <strong>deliberately bad</strong>
++            <code>.claude/settings.json</code>.
++          </span></li>
++          <li data-signal="warn"><span class="when">2 · audit it</span><span class="what">
++            <code>make grants</code> — it finds seven accidental grants in eight lines. Read them
++            before you look at the answer.
++          </span></li>
++          <li data-signal="block"><span class="when">3 · the one that matters</span><span class="what">
++            Find the rule that lets the agent edit <code>.claude/</code>. Fix that one by hand.
++          </span></li>
++          <li data-signal="pass"><span class="when">4 · delete</span><span class="what">
++            <code>rm .mcp.json</code>. Say out loud why.
++          </span></li>
++        </ol>
++      </div>
++
++      <figure class="code">
++        <figcaption><span>make grants · against the draft list</span><span class="tag block">eight lines, seven findings</span></figcaption>
++<pre><code>  1 · rules that reach further than they read
++
++      <span class="c-block">Bash(make:*)</span>
++        → every target in the task runner, including any added later
++      <span class="c-block">Bash(python3:*)</span>
++        → an interpreter takes `-c`, so this is an unrestricted shell
++      <span class="c-block">Bash(git:*)</span>
++        → includes push, reset --hard, clean -fdx, and config
++      <span class="c-block">Read(**)</span>
++        → reaches outside the repository
++      <span class="c-block">Write(**)</span>
++        → writes anywhere, including the charter that is supposed to
++          constrain this
++
++  2 · denies this repository has not written down
++
++      Read(./.env)                  the credential file
++      Read(./secrets/**)            anything filed under secrets
++      Bash(git push:*)              publishing without a human
++
++  3 · the enforcer inside its own blast radius
++
++      <span class="c-block">Write(**)</span>
++        → the hook config is a file and the agent has an edit tool.
++          Anything the agent can edit is not a constraint on the agent.
++
++  4 · the floor
++
++      none declared. When the list is wrong — and it will be — nothing
++      underneath it holds.</code></pre>
++      </figure>
++
++      <p>
++        Both ends of the dial fail, and they fail asymmetrically. A loose list fails once, loudly,
++        on the day an ambiguous prompt meets a general tool. A tight list fails quietly and
++        continuously, by generating so many prompts that somebody turns the whole thing off — and
++        <strong>the failure mode of over-restriction is under-restriction, arriving later and
++        unlogged.</strong> The fix for both is fewer things to permit.
++      </p>
++
++      <figure class="code">
++        <figcaption><span>.claude/settings.json · the repaired list</span><span class="tag pass">every allow names a unit of work somebody decided on</span></figcaption>
++<pre><code>"deny": [
++  "Read(./.env)", "Read(./.env.*)", "Read(./secrets/**)",
++  "Read(~/.aws/**)", "Read(~/.ssh/**)",
++  <span class="c-pass">"Write(./.claude/**)", "Edit(./.claude/**)",</span>     <span class="c-pass">← the blast radius</span>
++  <span class="c-pass">"Write(./tools/**)", "Edit(./tools/**)",</span>
++  "Bash(git push:*)", "Bash(git commit --no-verify:*)",
++  "Bash(rm -rf:*)", "Bash(curl:*)"
++],
++"ask": [
++  "Bash(git commit:*)",
++  "Write(./tarrasque/legacy/**)",
++  <span class="c-warn">"Edit(./tests/test_legacy_characterization.py)"</span>  <span class="c-warn">← the frozen pin</span>
++],
++"allow": [
++  <span class="c-pass">"Bash(make test:*)", "Bash(make lint:*)", "Bash(make types:*)",
++  "Bash(make gate:*)", "Bash(make verify:*)", "Bash(make score:*)",</span>
++  "Bash(git diff:*)", "Bash(git status:*)", "Bash(git log:*)",
++  "Edit(./tarrasque/domain/**)", "Edit(./tarrasque/api/encounters.py)",
++  "Edit(./tarrasque/http.py)", "Write(./tests/**)"
++]</code></pre>
++      </figure>
++
++      <p>
++        Read the <code>allow</code> block as a sentence: <em>this agent may run the project's own
++        checks, read anything in the repo, and write in the two places new work belongs.</em> That
++        sentence is the design. The list is just how you say it to a matcher.
++      </p>
++
++      <div class="keystone">
++        <span class="label">Staying portable · Keystone</span>
++        <p>
++          Four of these map straight across. A command is a <code>command</code>; a skill is a
++          <code>skill</code> (framework authors usually reach for <code>playbook</code>, which wraps
++          one and names the halt conditions between steps); a sub-agent is an <code>agent</code>; an
++          MCP declaration is a <code>tool</code> with <code>transport: mcp</code> — alongside
++          <code>cli</code>, <code>http</code> and <code>plugin</code>, which is the point, because the
++          transport stops being the thing you think about. The permission list is a
++          <code>posture</code>, and projection writes it out as this host's
++          <code>settings.json</code>. Every one declares <code>kind</code>, <code>id</code> and
++          <code>description</code> in frontmatter, and <code>keystone verify</code> fails at install
++          time if a playbook names a command the cascade does not carry.
++        </p>
++      </div>
++
++      <div class="takeaway">
++        <span class="label">Twelve anti-patterns, and only two are about the mechanism</span>
++        <p>
++          Four are trigger failures — the unread skill, the kitchen sink, the twin, the rule in a
++          skill's clothing. Three are return failures — the API mirror, the chatty return, the blind
++          parent. One is a grant failure: the sub-agent with no <code>tools:</code> line. Capability
++          work is mostly interface work, done in one line of frontmatter and one paragraph about
++          what comes back.
++        </p>
++      </div>
++    </div>
++  </section>
++
++  <!-- ============ 6 ============ -->
++  <section class="rung" id="s-6">
++    <div class="rung-head">
++      <div class="rung-index">
++        <span class="num">6</span>
++        <div class="meter" role="img" aria-label="What refuses it">
++          <i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i>
++        </div>
++        <span class="meter-label">What refuses it</span>
++      </div>
++      <div>
++        <span class="stamp"><b>0:58</b><span class="mins">12 minutes · lever 4, then run C</span></span>
++        <h2>Two verdict sources, one implementation</h2>
++        <p class="thesis">
++          A check can be settled by running code or by reading. Both belong in the charter, they
++          answer different questions, and the column that has been printing
++          <span class="mk-na">?</span> since 0:20 needs the second kind.
++        </p>
++        <div class="chips">
++          <span class="chip kind-hook">PreToolUse hook</span>
++          <span class="chip kind-hook">Stop hook</span>
++          <span class="chip kind-agent">reviewer sub-agent</span>
++        </div>
++      </div>
++    </div>
++
++    <div class="rung-body">
++      <h3 class="sub">The predicate, written once, mounted four times</h3>
++      <p>
++        <code>tools/charter_check.py</code> takes <code>{files: [{filename, source}]}</code> and
++        returns a verdict. Two constraints on it are deliberate and load-bearing, and they are the
++        whole reason the same forty lines can go anywhere.
++      </p>
++      <p>
++        <strong>It imports nothing from the project.</strong> The moment it imports
++        <code>tarrasque</code> it can only run where <code>tarrasque</code> is installed, and every
++        mount outside the repo stops working. <strong>It never opens a file.</strong> Sources arrive
++        as strings, so the same rules run over a diff, over a staged tool call, or over a payload
++        from a machine with no shared filesystem.
++      </p>
++
++      <figure class="code">
++        <figcaption><span>one rule, and the escape it names</span><span class="tag block">a guardrail with no sanctioned path produces creative circumvention</span></figcaption>
++<pre><code><span class="c-dim"># tools/charter_check.py</span>
++
++if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
++    if node.value.id == "random" and not _exempt(lines, node, "seeded"):
++        problems.append(_problem(
++            filename, node, <span class="c-block">"dice.seeded"</span>,
++            f"random.{node.attr}(); an unseeded roll cannot be "
++            "replayed from the log"))
++
++<span class="c-dim">$ echo '{"files":[{"filename":"a.py","source":"t = random.randint(1,20)"}]}' \
++    | python3 tools/charter_check.py</span>
++a.py:1: [dice.seeded] random.randint(); an unseeded roll cannot be replayed
++        from the log
++
++1 finding(s). Each line names its escape; see tools/charter_check.py.
++
++<span class="c-dim">$ # and the sanctioned path, which is the half people leave out</span>
++x = random.random()  <span class="c-pass"># seeded-gate: allow - dev fixture, TAR-99</span>
++<span class="c-pass">→ clean</span></code></pre>
++      </figure>
++
++      <p>
++        Every refusal names its escape, and then you <strong>count the markers</strong>. A spike in
++        exemptions says the rule is wrong, not that the agents are. A rule with no escape hatch does
++        not get obeyed; it gets routed around, by a helper module your glob does not cover.
++      </p>
++
++      <h3 class="sub">Mount one · the hook that refuses inside the turn</h3>
++      <figure class="code">
++        <figcaption><span>.claude/hooks/charter_gate.py</span><span class="tag block">exit 2 blocks the write and returns stderr to the agent</span></figcaption>
++<pre><code>def content_of(tool_input):
++    <span class="c-dim">"""The text this call is about to put on disk, whichever tool it is."""</span>
++    if "content" in tool_input:     return tool_input["content"]
++    if "new_string" in tool_input:  return tool_input["new_string"]
++    ...
++
++verdict = check({"files": [{"filename": relative, "source": source}]})
++if verdict["clean"]:
++    return 0
++print(render(verdict["problems"]), file=sys.stderr)
++return <span class="c-block">2</span>        <span class="c-block">← the bytes never reach disk</span></code></pre>
++      </figure>
++
++      <p>
++        <strong>Where the feedback lands decides whether the loop converges.</strong> When the same
++        violation is caught by a hook inside the turn, the agent reads one error line and patches
++        it, and the next turn starts clean. When it is caught after the loop, by a gate walking the
++        tree, the tool has already reported "wrote the file" — the agent never learned within the
++        turn that its fix did not work, and the repair loop runs open-loop. I have watched the same
++        rule, the same violation and the same model converge in zero repairs at the hook and fail
++        to converge at all after the loop.
++      </p>
++
++      <div class="callout">
++        <span class="label">The hook is the cheapest mechanical rung, and the only one inside its own blast radius</span>
++        <p>
++          <code>.claude/hooks/charter_gate.py</code> is a file, and the agent has an edit tool.
++          Nothing sits between those two facts except the <code>deny</code> rule you wrote five
++          minutes ago. This is not about a scheming model: a careless human, a bad merge, or an
++          instruction hidden in a page the agent fetched all reach the same file. Never ask whether
++          it <em>would</em>. Ask what at this layer <em>can</em>.
++        </p>
++      </div>
++
++      <h3 class="sub">Mount two · the Stop hook that verifies from the tree</h3>
++      <p>
++        The second hook runs <code>make verify</code> at the end of the turn, over what is actually
++        on disk — never over the agent's report of what is on disk. Verify from the tree, not from
++        the transcript. It is the last moment the feedback is still cheap.
++      </p>
++      <p>
++        That principle has a limit worth naming, because it is the hole this workshop cannot close.
++        A gate that re-runs the test suite holds <em>until the subject can rewrite the verifier</em>.
++        The missing rung is not a seventh checker; it is a rule that <strong>a test change is not
++        self-approving</strong>. Our C7 lives in the scorer rather than the gate for exactly that
++        reason — it needs the diff, not the source — and <code>.claude/settings.json</code> puts the
++        characterization file behind <code>ask</code>.
++      </p>
++
++      <h3 class="sub">Mount three · the reviewer, for the rule no predicate holds</h3>
++      <p>
++        A gate enforces only the <strong>decidable shadow</strong> of a rule. The predicate can see
++        that you read <code>character_id</code> out of the body. It cannot see that a dungeon master
++        should be able to roll for an unconscious player's character, that a charmed character is
++        controlled by whoever charmed them for the duration, or that a player rolling their own
++        death save is fine while rolling someone else's is the incident that put the rule in the
++        file. Those are judgements, and marking them <code>none</code> is honest where pretending a
++        gate covers them is not.
++      </p>
++
++      <figure class="code">
++        <figcaption><span>.claude/rules/authority.md</span><span class="tag warn">altitude: none — and the most valuable rule on the page</span></figcaption>
++<pre><code><span class="c-dim">## The rule no gate holds</span>
++
++<span class="c-warn">**Whether the control check is the *right* check is not decidable.**</span>
++
++When a ticket touches authority and the right answer is not obvious
++from this file, say so in the PR and name the two readings.
++<span class="c-block">Do not pick the one that is easier to implement.</span>
++
++*Altitude:* `none`. This is the most valuable rule on this page and
++nothing mechanical enforces it.</code></pre>
++      </figure>
++
++      <p>
++        Do not delete the rules you cannot enforce. A tidy-minded instinct says to cut every line no
++        gate backs, because those lines look like decoration. The unenforceable lines are where the
++        expensive failures live, precisely because no gate is watching them.
++      </p>
++
++      <div class="lab">
++        <span class="label">Your turn · nine minutes · run C</span>
++        <ol class="sequence">
++          <li data-signal="warn"><span class="when">1 · apply</span><span class="what">
++            <code>make lever N=4</code> — the two hooks and the repaired permission list.
++          </span></li>
++          <li data-signal="block"><span class="when">2 · feel it refuse</span><span class="what">
++            Ask your agent to read <code>.env</code>. Then ask it to add
++            <code>import random</code> to <code>tarrasque/api/encounters.py</code>. Watch both
++            refusals land differently — one from the grant, one from the hook.
++          </span></li>
++          <li data-signal="warn"><span class="when">3 · fresh session, same ticket</span><span class="what">
++            <code>make ticket TICKET=TAR-412</code>, or <code>/ticket TAR-412</code> now that the
++            command exists.
++          </span></li>
++          <li data-signal="pass"><span class="when">4 · review</span><span class="what">
++            Ask your agent to run the <code>charter-auditor</code> sub-agent on the diff. Save its
++            verdict as JSON:
++            <code>{"pass": false, "findings": ["..."]}</code>
++          </span></li>
++          <li data-signal="pass"><span class="when">5 · capture with C9</span><span class="what">
++            <code>make capture RUN=02-checks TICKET=TAR-412</code> — or
++            <code>python3 bin/capture 02-checks --ticket TAR-412 --review verdict.json</code> to
++            fill the ninth column.
++          </span></li>
++          <li data-signal="pass"><span class="when">6 · the matrix</span><span class="what">
++            <code>make compare</code>
++          </span></li>
++        </ol>
++      </div>
++
++      <figure class="code">
++        <figcaption><span>make compare · three runs</span><span class="tag pass">the deliverable</span></figcaption>
++<pre><code>  check                          00-bare    01-reads   02-checks
++  ------------------------------------------------------------------
++  C1 scope.allowed-paths           <span class="c-block">✗</span>          <span class="c-pass">✓</span>          <span class="c-pass">✓</span>
++  C2 dice.seeded                   <span class="c-block">✗</span>          <span class="c-pass">✓</span>          <span class="c-pass">✓</span>
++  C3 roll.provenance               <span class="c-block">✗</span>          <span class="c-pass">✓</span>          <span class="c-pass">✓</span>
++  C4 log.append-only               <span class="c-block">✗</span>          <span class="c-pass">✓</span>          <span class="c-pass">✓</span>
++  C5 legacy.frozen                 <span class="c-pass">✓</span>          <span class="c-pass">✓</span>          <span class="c-pass">✓</span>
++  C6 authority.session-derived     <span class="c-pass">✓</span>          <span class="c-pass">✓</span>          <span class="c-pass">✓</span>
++  C7 tests.not-self-approving      <span class="c-pass">✓</span>          <span class="c-pass">✓</span>          <span class="c-pass">✓</span>
++  C8 verify.green                  <span class="c-pass">✓</span>          <span class="c-pass">✓</span>          <span class="c-pass">✓</span>
++  <span class="c-warn">C9 authority.semantic            ?          ?          <span class="c-block">✗</span></span>
++  ------------------------------------------------------------------
++  decidable passed                 4          8          8
++  files changed                    4          3          3
++  lines added                      50         61         74</code></pre>
++      </figure>
++
++      <div class="callout">
++        <span class="label">The most interesting cell on the page is C9 going red</span>
++        <p>
++          Eight decidable checks were green in run B <em>and</em> run C. By every mechanical measure
++          the two runs are identical. The reviewer found something anyway — typically that the
++          endpoint checks <code>session.is_dungeon_master()</code> and therefore silently refuses a
++          player asking for a save on their own character, which criterion 4 of the ticket allows.
++          No predicate on this page could have seen that. A green scorecard is not a correct change;
++          it is a change with no <em>mechanically detectable</em> problem, and those are different
++          claims.
++        </p>
++      </div>
++
++      <div class="keystone">
++        <span class="label">Staying portable · Keystone</span>
++        <p>
++          Both mounts are the <strong>sensor</strong> primitive — reactive feedback, applied by
++          execution, subscribing to a moment via <code>on:</code>. There is no separate hook kind:
++          a computational sensor declares <code>run:</code> and its exit status is the verdict; an
++          inferential sensor declares <code>returns:</code> and is dispatched as an agent review.
++          Same subscription model, two verdict sources, and the subscription lives in the canonical
++          file — so you cannot quietly unhook a gate without the change showing up in the same diff
++          as the rule. <code>on:</code> takes host phases like <code>PreToolUse</code> and
++          <code>Stop</code>, or any signal your project defines and fires itself.
++        </p>
++      </div>
++
++      <div class="takeaway">
++        <span class="label">Pick the cheapest altitude that holds</span>
++        <p>
++          Start at prose; most rules never need to leave. Promote on <em>evidence</em>, not fear: a
++          rule earns a check after prose fails, and a gate after the failure reaches production.
++          Both are facts you can point at. And never gate what has legitimate exceptions — a refusal
++          people override weekly teaches everyone that refusals are negotiable, which damages the
++          gates that are not.
++        </p>
++      </div>
++    </div>
++  </section>
++
++  <!-- ============ 7 ============ -->
++  <section class="rung" id="s-7">
++    <div class="rung-head">
++      <div class="rung-index">
++        <span class="num">7</span>
++        <div class="meter" role="img" aria-label="The ceiling">
++          <i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i>
++        </div>
++        <span class="meter-label">The ceiling</span>
++      </div>
++      <div>
++        <span class="stamp"><b>1:10</b><span class="mins">8 minutes · where we stop, on purpose</span></span>
++        <h2>Which rules have earned the next rung — and why we are not taking it</h2>
++        <p class="thesis">
++          Everything you installed today is a file in a repository and a commit you can revert.
++          Above that line, enforcement lives somewhere reconfiguring the agent cannot reach. Naming
++          which of your rules belongs up there is this workshop. Putting it there is not.
++        </p>
++        <div class="chips">
++          <span class="chip kind-make">make promote</span>
++        </div>
++      </div>
++    </div>
++
++    <div class="rung-body">
++      <h3 class="sub">Three tests, and the third kills most candidates</h3>
++      <p>
++        A rule earns a mechanical rung only if it is <strong>consequential</strong> — being wrong
++        costs something, and costs it silently; <strong>recurrent</strong> — it has been broken more
++        than once, by different people; and <strong>decidable</strong> — a machine can settle it.
++        "No unseeded roll outside <code>rng.py</code>" is a predicate over a syntax tree. "The
++        control check is the right one" is not, and no amount of promotion will make it one.
++      </p>
++
++      <figure class="code">
++        <figcaption><span>make promote</span><span class="tag warn">recurrence comes from your own captured runs</span></figcaption>
++<pre><code>  rule                        conseq   recur   decidable   verdict
++  ---------------------------------------------------------------------
++  dice.seeded                 yes      2×      True        <span class="c-pass">mechanical rung earned</span>
++  roll.provenance             yes      2×      True        <span class="c-pass">mechanical rung earned</span>
++  log.append-only             yes      2×      True        <span class="c-pass">mechanical rung earned</span>
++  legacy.frozen               yes      0×      True        <span class="c-warn">decidable — needs recurrence</span>
++  authority.session-derived   yes      1×      shadow      <span class="c-warn">gate the shadow, train the rest</span>
++  authority.semantic          yes      1×      False       <span class="c-block">prose + reviewer. No gate
++                                                            will ever hold it</span></code></pre>
++      </figure>
++
++      <p>
++        Two judgement calls in that table are worth naming. A rule with a handful of blocks stays,
++        because the metric is <em>expected damage</em>, not frequency — one unverifiable session
++        dwarfs a hundred scope warnings. And a rule with a hundred and forty-seven blocks is not a
++        success story: something upstream keeps producing changes that violate it, and the rule is
++        absorbing a problem instead of solving it.
++      </p>
++
++      <h3 class="sub">The two rungs above, in one table, and then we stop</h3>
++      <p>
++        Both of the verdict sources you built today exist at every altitude. That symmetry is the
++        only thing you need from the rungs above: the same rule, the same two kinds of check, mounted
++        where a different actor owns the enforcement.
++      </p>
++
++      <div class="tablewrap">
++        <table>
++          <caption>the same two checks, three altitudes · the charter column is what we built</caption>
++          <thead>
++            <tr><th>altitude</th><th>deterministic check</th><th>inferential check</th><th>who can switch it off</th></tr>
++          </thead>
++          <tbody>
++            <tr>
++              <td><strong>Charter</strong><br><span class="c-dim">today</span></td>
++              <td>hook, <code>make gate</code>, linter, type checker, an AST predicate</td>
++              <td>reviewer sub-agent, a charter eval scorer</td>
++              <td>anything that can write to <code>.claude/</code></td>
++            </tr>
++            <tr>
++              <td><strong>Harness</strong><br><span class="c-dim">one agent</span></td>
++              <td>a tool that refuses internally, a withheld grant, a bounded loop, an exit-code contract</td>
++              <td>a judge node in the loop, a structured verdict before the next turn</td>
++              <td>whoever deploys the harness</td>
++            </tr>
++            <tr>
++              <td><strong>Orchestration</strong><br><span class="c-dim">many</span></td>
++              <td>a stage gate, CI over the whole tree, schema validation on every edge, an attestation</td>
++              <td>a judge stage in the DAG, an acceptance grader, a cross-run eval suite</td>
++              <td>whoever owns the pipeline</td>
++            </tr>
++          </tbody>
++        </table>
++      </div>
++
++      <p>
++        A DAG is an acyclic pipeline — fixed steps, edges forward, runs to completion. A loop is
++        cyclic: act, check, route, back to act, until a bound fires. A factory is a topology of
++        governed steps with humans at named touchpoints. Every one of them hangs the same two kinds
++        of check off its edges. That is the whole map, and it is as far as we go.
++      </p>
++
++      <div class="callout">
++        <span class="label">Two reasons to stop here rather than keep climbing</span>
++        <p>
++          The first is honest scope: the claim this workshop can actually demonstrate in ninety
++          minutes is a claim about the repo layer, and a session that reaches upward loses the one
++          thing it could prove. The second is that <strong>promotion costs engineering time and adds
++          friction to every future change</strong>. Most rules never need to leave prose. Almost
++          nobody demotes a rule, which is why charters only grow — so before you promote anything,
++          check whether a gate whose rule has become second nature could come back down instead.
++        </p>
++      </div>
++
++      <div class="takeaway">
++        <span class="label">Write it down, then stop</span>
++        <p>
++          Section 6 of <code>HITLIST.md</code> takes one or two rules, no more, with what each costs
++          when it is broken and how many times it has been broken by different people. Promoting it
++          is next week's problem and somebody else's workshop. Writing down that it has been earned
++          is this week's.
++        </p>
++      </div>
++    </div>
++  </section>
++
++  <!-- ============ 8 ============ -->
++  <section class="rung" id="s-8">
++    <div class="rung-head">
++      <div class="rung-index">
++        <span class="num">8</span>
++        <div class="meter" role="img" aria-label="What we built">
++          <i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i>
++        </div>
++        <span class="meter-label">What we built</span>
++      </div>
++      <div>
++        <span class="stamp"><b>1:18</b><span class="mins">8 minutes · the whole thing, in three pictures</span></span>
++        <h2>Four levers, and exactly where each one intervenes</h2>
++        <p class="thesis">
++          Every lever you applied sits at a different moment of a single turn. Two of them are read
++          before the model is called at all. One changes what the model may reach for. One refuses
++          things after the model has decided and before they reach disk. Seeing when each fires is
++          what makes the ladder stop being a metaphor.
++        </p>
++      </div>
++    </div>
++
++    <div class="rung-body">
++      <h3 class="sub">One turn, with the charter installed</h3>
++      <figure class="code diagram">
++        <figcaption><span>where each lever intervenes</span><span class="tag pass">the harness reads the charter; it is not part of it</span></figcaption>
++<pre class="mermaid">
++sequenceDiagram
++  autonumber
++  actor You as you
++  participant H as harness · the agent loop
++  participant C as charter · files in the repo
++  participant M as model
++  participant FS as working tree
++
++  You->>H: /ticket TAR-412
++  Note over C: lever 3 · the command expands,<br/>with make ticket and git diff<br/>already run and pasted in
++
++  H->>C: read CLAUDE.md
++  Note over C: lever 1 · every turn, whatever<br/>the task. The era paragraph
++  H->>C: read .claude/rules/* for the touched globs
++  Note over C: lever 2 · path-scoped, so the<br/>testing rules stay out of<br/>context while editing domain
++
++  H->>C: load capability descriptions
++  Note over C: lever 3 · one line each for the<br/>skill and the sub-agent.<br/>The standing bill
++
++  H->>M: system prompt + charter + tool schemas + the ticket
++  M-->>H: Skill(add-endpoint)
++  H->>C: read SKILL.md body
++  Note over C: lever 3 · the sequence a rule<br/>cannot hold. Nine steps,<br/>three halt conditions
++
++  M-->>H: Edit(tarrasque/api/encounters.py)
++  H->>C: PreToolUse → charter_gate.py
++  Note over C: lever 4 · deterministic.<br/>The same predicate as make gate
++  C-->>H: exit 2 · dice.seeded, line 214
++  H->>M: the refusal, inside the turn
++  M-->>H: Edit again, through stream_for()
++  H->>C: PreToolUse → charter_gate.py
++  C-->>H: exit 0
++  H->>FS: the write lands
++
++  M-->>H: done
++  H->>C: Stop → verify_reminder.py
++  C-->>H: make verify, run over the tree
++  You->>H: run the charter-auditor
++  H->>C: read .claude/agents/charter-auditor.md
++  Note over C: lever 4 · inferential. No write<br/>tool, and a stated return shape
++</pre>
++      </figure>
++
++      <p>
++        Three things that picture makes concrete. The charter is <strong>read</strong>, never
++        executed by itself — the harness is what runs, and it is not one of the layers. The gate
++        fires <strong>between the model's decision and the disk</strong>, which is why the agent
++        gets to fix its own mistake inside the same turn instead of learning about it eight minutes
++        later in CI. And the arrow that matters most is the one going back up: a refusal with a
++        reason attached is feedback, and feedback that arrives while the agent is still on the task
++        is the only kind that converges.
++      </p>
++
++      <h3 class="sub">The same turn without any of it</h3>
++      <figure class="code diagram">
++        <figcaption><span>run A, which is where everybody starts</span><span class="tag block">nothing between the model and the disk</span></figcaption>
++<pre class="mermaid">
++sequenceDiagram
++  autonumber
++  actor You as you
++  participant H as harness
++  participant R as repository
++  participant M as model
++  participant FS as working tree
++
++  You->>H: the ticket, pasted
++  H->>R: read whatever looks relevant
++  R-->>H: handlers.py — 1,100 lines of precedent
++  Note over R: the only charter present is<br/>the code itself, and it says<br/>random.randint is fine here
++  H->>M: system prompt + the ticket + what it read
++  M-->>H: Edit(tarrasque/api/handlers.py)
++  H->>FS: the write lands
++  M-->>H: done
++  You->>FS: make test
++  FS-->>You: green
++  Note over You,FS: the tests pass. The endpoint<br/>works. Four rules were broken<br/>and nothing said so
++</pre>
++      </figure>
++
++      <h3 class="sub">And where the two rungs above would sit</h3>
++      <figure class="code diagram">
++        <figcaption><span>the same rule, promoted — for reference only</span><span class="tag warn">we do not build this today</span></figcaption>
++<pre class="mermaid">
++sequenceDiagram
++  autonumber
++  participant O as orchestrator · DAG, factory, graph
++  participant H as harness · one agent
++  participant C as charter · the repo
++  participant M as model
++  participant P as the predicate
++
++  Note over O,P: one implementation of the rule,<br/>four mount points
++
++  O->>H: a node of the pipeline: implement TAR-412
++  H->>C: CLAUDE.md, rules, capabilities
++  H->>M: the turn
++  M-->>H: a tool call
++  H->>P: charter hook · lever 4
++  P-->>H: verdict
++  Note right of H: the agent could edit this file.<br/>Deny it, or accept that it is advice
++  H->>P: the tool refuses internally
++  P-->>H: verdict
++  Note right of H: reconfiguring the agent<br/>does not reach this one
++  H-->>O: the branch
++  O->>P: stage gate · walks the tree, not the report
++  P-->>O: verdict
++  O->>M: judge stage · the inferential half, outside the agent
++  M-->>O: a structured verdict
++  O->>P: CI, over the whole repository
++  P-->>O: verdict
++  Note over O: everything from the stage gate down<br/>is somebody else's process —<br/>and a different workshop
++</pre>
++      </figure>
++
++      <p>
++        Two mounts in that picture are inside the charter and two are above it. The line runs
++        between the hook and the tool: a hook is charter content, mechanical, and sitting inside the
++        blast radius of what it enforces against. A tool that refuses internally is a different
++        process saying no. That is the whole distinction, and it is why the promotion report in §7
++        stops where it does.
++      </p>
++
++      <h3 class="sub">What you installed, one row each</h3>
++      <div class="tablewrap">
++        <table>
++          <caption>the four levers as files · and the Keystone primitive each one is</caption>
++          <thead>
++            <tr><th>lever</th><th>Claude Code</th><th>fires when</th><th>Keystone kind</th></tr>
++          </thead>
++          <tbody>
++            <tr>
++              <td><strong>1</strong> instruction</td>
++              <td><code>CLAUDE.md</code></td>
++              <td>every turn, before anything</td>
++              <td><code>guide</code>, unscoped</td>
++            </tr>
++            <tr>
++              <td><strong>2</strong> constraint</td>
++              <td><code>.claude/rules/*.md</code></td>
++              <td>when the glob matches the files touched</td>
++              <td><code>guide</code> with <code>globs:</code></td>
++            </tr>
++            <tr>
++              <td><strong>3</strong> capability</td>
++              <td><code>.claude/commands/</code></td>
++              <td>a human types it</td>
++              <td><code>command</code></td>
++            </tr>
++            <tr>
++              <td></td>
++              <td><code>.claude/skills/</code></td>
++              <td>the model matches the description</td>
++              <td><code>skill</code>, or a <code>playbook</code> that wraps it</td>
++            </tr>
++            <tr>
++              <td></td>
++              <td><code>.claude/agents/</code></td>
++              <td>the parent turn spawns it</td>
++              <td><code>agent</code></td>
++            </tr>
++            <tr>
++              <td></td>
++              <td><code>.mcp.json</code></td>
++              <td>the model matches a schema</td>
++              <td><code>tool</code>, <code>transport: mcp</code></td>
++            </tr>
++            <tr>
++              <td></td>
++              <td><code>settings.json</code> · permissions</td>
++              <td>every tool call</td>
++              <td><code>posture</code></td>
++            </tr>
++            <tr>
++              <td><strong>4</strong> check</td>
++              <td><code>.claude/hooks/</code> + the <code>hooks</code> block</td>
++              <td><code>PreToolUse</code>, <code>Stop</code></td>
++              <td><code>sensor</code> with <code>run:</code></td>
++            </tr>
++            <tr>
++              <td></td>
++              <td><code>charter-auditor</code> sub-agent</td>
++              <td>asked, or on a signal</td>
++              <td><code>sensor</code> with <code>returns:</code></td>
++            </tr>
++            <tr>
++              <td><em>not a lever</em></td>
++              <td>a plugin</td>
++              <td>whatever it ships fires</td>
++              <td>a vendored <code>policy</code>, pinned by hash</td>
++            </tr>
++          </tbody>
++        </table>
++      </div>
++
++      <div class="keystone">
++        <span class="label">Why the right-hand column exists at all</span>
++        <p>
++          Everything in the middle column is one vendor's file layout, and it will change. The
++          right-hand column is the same design expressed once, in typed primitives under
++          <code>.charter/</code>, with <code>keystone project</code> compiling down to whatever host
++          you are pointed at — <code>.claude/</code>, <code>.cursor/rules/*.mdc</code>, a pointer
++          block in <code>AGENTS.md</code>. An <code>INDEX.json</code> records what the agent actually
++          sees after the cascade resolves, and a lockfile pins vendored policy by hash.
++        </p>
++        <p>
++          The part worth stealing even if you never install it: <strong>the canonical layer is
++          human-edited and the projected layer is build output.</strong> Editing
++          <code>.claude/</code> in a repo like that is editing a compiled artifact, and the next
++          projection overwrites it. If you take one structural idea out of today, take that one —
++          it is what stops a charter from drifting into four slightly different copies across four
++          agent surfaces.
++        </p>
++      </div>
++
++      <div class="takeaway">
++        <span class="label">The summary in one sentence</span>
++        <p>
++          You wrapped an application in four levers, all of them files: one read on every turn, one
++          read when its paths are touched, one that changes what the agent can reach for, and one
++          that refuses — deterministically before the disk, and inferentially before the pull
++          request. Then you measured all four against the same ticket, three times, and found out
++          which of them actually moved anything.
++        </p>
++      </div>
++    </div>
++  </section>
++
++  <!-- ============ 9 ============ -->
++  <section class="rung" id="s-9">
++    <div class="rung-head">
++      <div class="rung-index">
++        <span class="num">9</span>
++        <div class="meter" role="img" aria-label="Monday">
++          <i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i>
++        </div>
++        <span class="meter-label">Monday</span>
++      </div>
++      <div>
++        <span class="stamp"><b>1:26</b><span class="mins">4 minutes, then questions</span></span>
++        <h2>A fixed budget, a deletion day, and your own repository</h2>
++        <p class="thesis">
++          Nothing in the ordinary operation of a team ever removes a charter rule. Without a hard
++          constraint the charter only grows, until it stops working on a day nobody can name.
++        </p>
++        <div class="chips">
++          <span class="chip kind-rule">40 lines</span>
++          <span class="chip kind-gate">adding requires removing</span>
++          <span class="chip kind-make">deletion day</span>
++        </div>
++      </div>
++    </div>
++
++    <div class="rung-body">
++      <h3 class="sub">The budget is one line at the top of the file</h3>
++      <figure class="code">
++        <figcaption><span>the header that makes the rest work</span><span class="tag warn">crude, annoying, and nothing else reliably works</span></figcaption>
++<pre><code># Charter
++#
++# Every rule names the incident that caused it. No incident, no rule.
++# <span class="c-warn">Adding one requires removing or merging one.</span> Reviewed each January.
++#
++# Format:
++#   the rule, in behavioural terms
++#   altitude: gate | check | human | none
++#   date · link · what it cost</code></pre>
++      </figure>
++
++      <p>
++        It turns every addition into a comparison. The question stops being <em>is this rule
++        good</em> — every rule is good — and becomes <em>is this rule better than the weakest rule in
++        the charter</em>, which is a question with an answer. Three ways to make room: merge two
++        rules about the same thing, <strong>promote</strong> one out of prose into a gate and delete
++        the prose, or delete one that has not fired in a year.
++      </p>
++      <p>
++        Promotion is the move to reach for first, because it is the only one where the charter gets
++        shorter <em>and</em> the constraint gets stronger.
++      </p>
++
++      <h3 class="sub">Deletion day</h3>
++      <p>
++        One afternoon a year, with the audit trail open, asking for each rule <em>when did this last
++        do anything</em> rather than <em>is this still a good idea</em>. It is why a trail records
++        passes as well as blocks: a rule that has never blocked anything is either second nature or
++        dead, and both look identical from outside until you have the numbers. Additions happen on
++        their own, because adding a rule is how a team shows the incident mattered. Deletion has no
++        such motivation behind it. Put a name and a date on it, or accept that the charter grows
++        forever.
++      </p>
++
++      <div class="lab">
++        <span class="label">Your turn · four minutes · about your repo, not this one</span>
++        <ol class="sequence">
++          <li data-signal="warn"><span class="when">§1</span><span class="what">
++            The signals in your repo that lie. One you will delete on Monday.
++          </span></li>
++          <li data-signal="warn"><span class="when">§2</span><span class="what">
++            Your opposed imitation surface — the rule you believe in, and the directory that
++            contradicts it. Then decide which of the two is wrong.
++          </span></li>
++          <li data-signal="warn"><span class="when">§3</span><span class="what">
++            Your undecidable rule, its decidable shadow, and how the team practises it given that
++            nothing enforces it.
++          </span></li>
++          <li data-signal="warn"><span class="when">§4</span><span class="what">
++            Three capabilities, run through the family test. Find the one that is a rule wearing a
++            skill's clothing, and the one nobody has confirmed ever fires.
++          </span></li>
++          <li data-signal="warn"><span class="when">§5</span><span class="what">
++            Your grants. Whether the agent can edit the thing that constrains the agent. What your
++            floor is when the list turns out to be wrong.
++          </span></li>
++          <li data-signal="pass"><span class="when">§6–7</span><span class="what">
++            One or two rules that have earned the next rung — and your budget, and whose name is on
++            deletion day.
++          </span></li>
++        </ol>
++      </div>
++
++      <div class="callout">
++        <span class="label">What today was not</span>
++        <p>
++          It was not a measurement. n is one per person per cell, one model, one seed repository,
++          one rule family, and I designed those rules so the effect would be visible. Nothing here
++          has statistical significance and none of it should be quoted as a rate. What it is: an
++          instrument, in a repository you keep, pointed at a claim you can now test on your own
++          codebase — where the answer actually matters and where I have no stake in how it comes
++          out.
++        </p>
++      </div>
++
++      <div class="takeaway">
++        <span class="label">Where to start on an existing charter</span>
++        <p>
++          Do not rewrite it. Go through it once and put a date and a cause on every line you can.
++          The lines where you cannot are your answer: some are load-bearing and undocumented, and
++          the rest are the ones to delete first. That exercise takes an hour and it is usually the
++          most informative hour anyone has spent on the file.
++        </p>
++      </div>
++
++      <h3 class="sub">If you want more of the repository than ninety minutes allowed</h3>
++      <div class="tablewrap">
++        <table>
++          <caption>six more tickets, each landing on a different set of rules</caption>
++          <thead><tr><th>ticket</th><th>size</th><th>what it is for</th></tr></thead>
++          <tbody>
++            <tr><td><code>TAR-388</code></td><td>small</td><td>concentration checks. Small enough that a bad diff is obviously bad.</td></tr>
++            <tr><td><code>TAR-401</code></td><td>medium</td><td>death saves. The state machine makes editing a pinned test tempting.</td></tr>
++            <tr><td><code>TAR-429</code></td><td>small</td><td><strong>the control ticket.</strong> No die is rolled, so the seeding rule cannot fire. If the charter moves its score, it moved it through something else.</td></tr>
++            <tr><td><code>TAR-455</code></td><td>small</td><td>conditions. The authority question <em>is</em> the ticket.</td></tr>
++            <tr><td><code>TAR-467</code></td><td>medium</td><td><strong>the payoff ticket.</strong> Replay an encounter from its log. It only works at all if the seeding rule held — point it at a run that ignored the rule and every roll comes back unverifiable.</td></tr>
++            <tr><td><code>TAR-473</code></td><td>small</td><td><strong>the trap ticket.</strong> A working implementation sits two lines away in the frozen module and is wrong.</td></tr>
++          </tbody>
++        </table>
++      </div>
++
++      <p>
++        <code>TAR-467</code> is the one to run on the train home. It is the most direct
++        demonstration in the repository of what a charter rule buys: an endpoint that replays a
++        session from its log, pointed at work an unchartered agent produced, answering
++        <em>unverifiable</em> for every roll it made.
++      </p>
++    </div>
++  </section>
++
++  <footer>
++    <p>
++      <strong>Wrap It in a Charter</strong>, a workshop. CC BY 4.0 for the material, MIT for the
++      code. <a href="https://tacoda.dev">Ian Johnson</a>, <em>Harness Engineering</em>.
++    </p>
++    <p>
++      Reads alongside ·
++      <a href="https://tacoda.dev/anatomy-of-a-charter/">Anatomy of a Charter</a> (the four parts of a rule) ·
++      <a href="https://tacoda.dev/capability-ladder/">The Capability Ladder</a> (the other half) ·
++      <a href="https://tacoda.dev/narrow-door/">The Narrow Door</a> (permissions, and what you meant) ·
++      <a href="https://tacoda.dev/layers-and-promotion/">Layers and Promotion</a> (one rule, six rungs, a switch for each) ·
++      <a href="https://tacoda.dev/harness/">Promotion to the Harness</a> (the rung we stopped below)
++    </p>
++    <p>
++      Colour is semantic:
++      <span class="c-block">brick blocks</span> ·
++      <span class="c-warn">gold is your turn</span> ·
++      <span class="c-pass">forest passes</span>.
++    </p>
++  </footer>
++</div>
++
++<script>
++  /* The explicit choice wins over the media query, per the page's tokens,
++     and survives a reload. Three states: system, light, dark. */
++  (function () {
++    const root = document.documentElement;
++    const saved = localStorage.getItem("charter-workshop-theme");
++    if (saved === "light" || saved === "dark") root.setAttribute("data-theme", saved);
++
++    document.querySelector("[data-theme-toggle]").addEventListener("click", () => {
++      const now = root.getAttribute("data-theme");
++      const next = now === "light" ? "dark" : now === "dark" ? null : "light";
++      if (next) {
++        root.setAttribute("data-theme", next);
++        localStorage.setItem("charter-workshop-theme", next);
++      } else {
++        root.removeAttribute("data-theme");
++        localStorage.removeItem("charter-workshop-theme");
++      }
++    });
++  })();
++</script>
++
++<script type="module">
++
++  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
++
++  const nodes = [...document.querySelectorAll("pre.mermaid")];
++  const source = new Map(nodes.map(el => [el, el.textContent]));
++  const token = name => getComputedStyle(document.documentElement)
++    .getPropertyValue(name).trim();
++
++  /* The palette is read from the page's own tokens, so one definition serves
++     light and dark, prefers-color-scheme and the explicit toggle. Every
++     background stays transparent so the paper shows through. */
++  const themeVariables = () => ({
++    background: "transparent",
++    mainBkg: token("--surface-2"),
++    primaryColor: token("--surface-2"),
++    primaryTextColor: token("--ink"),
++    primaryBorderColor: token("--rule"),
++    nodeBorder: token("--rule"),
++    lineColor: token("--ink-3"),
++    textColor: token("--ink-2"),
++    clusterBkg: "transparent",
++    clusterBorder: token("--rule"),
++    edgeLabelBackground: token("--ground"),
++    /* sequence notes default to mermaid's lemon, which is a second palette */
++    noteBkgColor: token("--surface-2"),
++    noteTextColor: token("--ink"),
++    noteBorderColor: token("--rule"),
++    fontFamily: token("--mono"),
++    fontSize: "13px"
++  });
++
++  /* Same four signal colours the prose uses: brick blocks, gold warns,
++     forest passes, and dim is structure rather than a step. */
++  const signals = () => [
++    `classDef block fill:${token("--brick-wash")},stroke:${token("--brick")},color:${token("--ink")}`,
++    `classDef warn fill:${token("--gold-wash")},stroke:${token("--gold")},color:${token("--ink")}`,
++    `classDef pass fill:${token("--forest-wash")},stroke:${token("--forest")},color:${token("--ink")}`,
++    `classDef dim fill:transparent,stroke:${token("--rule")},color:${token("--ink-3")}`
++  ].join("\n");
++
++  async function render() {
++    mermaid.initialize({
++      startOnLoad: false,
++      securityLevel: "strict",
++      theme: "base",
++      themeVariables: themeVariables(),
++      flowchart: { htmlLabels: false, curve: "linear", rankSpacing: 38,
++                   nodeSpacing: 28, padding: 8, useMaxWidth: true,
++                   wrappingWidth: 240 },
++      sequence: { useMaxWidth: true, mirrorActors: false }
++    });
++    for (const el of nodes) {
++      el.removeAttribute("data-processed");
++      /* classDef is flowchart grammar; a sequenceDiagram fails to parse with
++         the signal block appended, so it renders without one. */
++      const src = source.get(el);
++      el.textContent = /^\s*(flowchart|graph)\b/m.test(src)
++        ? `${src}\n${signals()}` : src;
++    }
++    await mermaid.run({ nodes });
++  }
++
++  render();
++  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
++  new MutationObserver(render).observe(document.documentElement,
++    { attributes: true, attributeFilter: ["data-theme"] });
++</script>
++
++</body>
++</html>

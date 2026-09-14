@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+"""The charter gate: the decidable rules over what this change introduced.
+
+    bin/gate              # findings on lines this working tree added
+    bin/gate --all        # findings anywhere in the tree, including the seed's
+    bin/gate path.py ...  # findings in named files, whole file
+
+The predicate itself is `tools/charter_check.py`, and it stays pure: it takes
+sources as strings and never opens a file, so the same rules mount as a hook,
+as a bundled script, and as this. The diff awareness lives here, in the CLI,
+because a change should be answerable for what it wrote and not for what it
+inherited.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from tools.charter_check import check, render  # noqa: E402
+from tools.scorecard import added_lines, changed_files  # noqa: E402
+
+
+def sources_for(paths: list[str]) -> dict:
+    files = []
+    for path in paths:
+        full = ROOT / path
+        if full.suffix == ".py" and full.is_file():
+            files.append({"filename": path, "source": full.read_text(encoding="utf-8")})
+    return {"files": files}
+
+
+def main(argv: list[str]) -> int:
+    whole_file = True
+    if argv and argv[0] == "--all":
+        paths = [
+            str(path.relative_to(ROOT))
+            for path in (ROOT / "tarrasque").rglob("*.py")
+        ]
+    elif argv:
+        paths = argv
+    else:
+        paths = changed_files()
+        whole_file = False
+
+    if not paths:
+        print("  nothing changed")
+        return 0
+
+    problems = check(sources_for(paths))["problems"]
+
+    if not whole_file:
+        touched = added_lines()
+        problems = [
+            item for item in problems
+            if item["line"] in touched.get(item["file"], set())
+        ]
+
+    if not problems:
+        return 0
+
+    print(render(problems))
+    print(
+        f"\n{len(problems)} finding(s)"
+        f"{' across the whole tree' if whole_file and argv[:1] == ['--all'] else ''}. "
+        "Each line names its escape; see tools/charter_check.py."
+    )
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

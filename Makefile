@@ -59,15 +59,11 @@ types:  ## mypy --strict over the package (skipped when mypy is absent)
 	   echo "  mypy not found — skipped"; \
 	 fi
 
-gate:  ## the charter's decidable rules over the changed files  (< 1s, stdlib)
-	@if [ -z "$(CHANGED)" ]; then \
-	   echo "  nothing changed"; \
-	 else \
-	   $(PYTHON) tools/charter_check.py $(CHANGED); \
-	 fi
+gate:  ## the charter's decidable rules over what this change added  (< 1s, stdlib)
+	@$(PYTHON) bin/gate
 
 gate-all:  ## the same rules over the whole tree — shows the seed's own debt
-	@$(PYTHON) tools/charter_check.py $$(find $(PKG) -name '*.py') || true
+	@$(PYTHON) bin/gate --all || true
 
 verify:  ## lint + types + tests + gate. The one command CLAUDE.md names.
 	@$(MAKE) --no-print-directory lint
