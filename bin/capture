@@ -18,14 +18,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "bin"))
 
-import importlib.util  # noqa: E402
-
-spec = importlib.util.spec_from_file_location("scorer", ROOT / "bin" / "score")
-scorer = importlib.util.module_from_spec(spec)
-assert spec.loader is not None
-spec.loader.exec_module(scorer)
+from charter.scorecard import render, score  # noqa: E402
 
 CHARTER_PATHS = ["CLAUDE.md", ".claude", ".mcp.json"]
 
@@ -72,12 +66,12 @@ def main() -> int:
 
     (target / "diff.patch").write_text(git("diff", "HEAD"), encoding="utf-8")
 
-    card = scorer.score(args.ticket, run_verify=not args.no_verify)
+    card = score(args.ticket, run_verify=not args.no_verify)
     card["slug"] = args.slug
     card["charter"] = charter_state()
     (target / "scorecard.json").write_text(json.dumps(card, indent=2), encoding="utf-8")
 
-    print(scorer.render(card))
+    print(render(card))
     print(f"\n  captured to runs/{args.slug}/")
 
     if args.reset:
