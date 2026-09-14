@@ -250,3 +250,41 @@ def post_rewind(connection, request):
 def get_health(connection, request):
     """GET /healthz"""
     return _json(200, {"status": "ok"})
+
+
+def post_group_save(connection, request):
+    """POST /v1/encounters/:id/saving-throws - resolve a group saving throw."""
+    try:
+        body = json.loads(request.get("body") or "{}")
+    except ValueError:
+        return _json(400, {"error": "invalid json"})
+
+    encounter_id = request.get("path_params", {}).get("encounter_id")
+    ability = body.get("ability") or "dex"
+    dc = int(body.get("dc") or 10)
+    combatants = body.get("combatants") or []
+
+    results = []
+    for combatant_id in combatants:
+        row = queries.get_character(connection, combatant_id)
+        if row is None:
+            continue
+        modifier = int(json.loads(row["saves"]).get(ability, 0))
+        mode = body.get("mode") or "normal"
+        if mode == "advantage":
+            total = tables.advantage(modifier)
+        elif mode == "disadvantage":
+            total = tables.disadvantage(modifier)
+        else:
+            total = random.randint(1, 20) + modifier
+        results.append({
+            "combatant_id": combatant_id,
+            "total": total,
+            "success": total >= dc,
+        })
+
+    queries.update_log_payload(
+        connection, encounter_id, 1, {"kind": "group_save", "results": results}
+    )
+    connection.commit()
+    return _json(200, {"encounter_id": encounter_id, "dc": dc, "results": results})

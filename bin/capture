@@ -19,7 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from charter.scorecard import render, score  # noqa: E402
+from tools.scorecard import render, score  # noqa: E402
 
 CHARTER_PATHS = ["CLAUDE.md", ".claude", ".mcp.json"]
 

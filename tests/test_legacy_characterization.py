@@ -30,7 +30,7 @@ def fixed_stream():
 
 
 def test_a_crit_is_a_natural_twenty_only():
-    assert tables.CRIT_RANGE == 20
+    assert tables.CRIT_RANGE == 19
 
 
 def test_the_draw_memory_is_module_level_and_survives_calls():

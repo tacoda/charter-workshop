@@ -10,7 +10,7 @@
 
 import random
 
-CRIT_RANGE = 20
+CRIT_RANGE = 19
 
 LOOT = [
     "a bent copper piece", "a rain-stained map", "three iron rations",

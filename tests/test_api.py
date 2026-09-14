@@ -201,3 +201,13 @@ class TestLog:
         recorded = body["entries"][-1]["payload"]["roll"]
         replayed = roll(SeededRng(recorded["seed"]), recorded["notation"])
         assert replayed.total == recorded["total"]
+
+
+def test_group_save(connection):
+    status, body = call(
+        connection, "POST", "/v1/encounters/enc_ashfall_001/saving-throws",
+        body=json.dumps({"ability": "dex", "dc": 12,
+                         "combatants": ["chr_brann", "chr_sable"]}),
+    )
+    assert status == 200
+    assert len(body["results"]) == 2

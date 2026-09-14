@@ -58,6 +58,8 @@ V1_ROUTES: list[tuple[str, str, Callable[..., Response]]] = [
     ("GET", "/v1/tables/complication", handlers.get_complication),
     ("POST", "/v1/encounters", handlers.post_encounter),
     ("POST", "/v1/damage", handlers.post_damage),
+    ("POST", "/v1/encounters/:encounter_id/saving-throws",
+     handlers.post_group_save),
     ("POST", "/v1/encounters/:encounter_id/initiative", handlers.post_v1_initiative),
     ("POST", "/v1/encounters/:encounter_id/fix", handlers.post_log_fix),
     ("POST", "/v1/encounters/:encounter_id/rewind", handlers.post_rewind),
