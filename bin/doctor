@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+"""Check that this machine can run the workshop. Thirty seconds, before we start.
+
+    bin/doctor
+
+Nothing here needs the network. The floor is the standard library: if every
+optional tool is missing, `make gate`, `bin/score`, and `make test` still work.
+"""
+
+from __future__ import annotations
+
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+OK, WARN, BAD = "  ok  ", " note ", " fail "
+
+
+def run(*args: str) -> tuple[bool, str]:
+    try:
+        result = subprocess.run(
+            args, cwd=ROOT, capture_output=True, text=True, timeout=120, check=False
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return False, str(error)
+    tail = (result.stdout + result.stderr).strip().splitlines()
+    return result.returncode == 0, tail[-1] if tail else ""
+
+
+def main() -> int:
+    failures = 0
+
+    version = sys.version_info
+    good = version >= (3, 11)
+    print(f"{OK if good else BAD} python {version.major}.{version.minor}"
+          f"{'' if good else '   — 3.11 or newer is required'}")
+    failures += 0 if good else 1
+
+    ok, _ = run("git", "rev-parse", "--git-dir")
+    print(f"{OK if ok else BAD} git repository")
+    failures += 0 if ok else 1
+
+    for tool, target, note in (
+        ("pytest", "make test", "falls back to the bundled runner"),
+        ("ruff", "make lint", "falls back to a bundled style check"),
+        ("mypy", "make types", "skipped when absent"),
+    ):
+        found = shutil.which(tool) is not None
+        print(f"{OK if found else WARN} {tool:<8} {'' if found else note}")
+
+    ok, tail = run("python3", "charter/check.py", "tarrasque/domain/dice.py")
+    print(f"{OK if ok else BAD} charter gate  {'' if ok else tail}")
+    failures += 0 if ok else 1
+
+    ok, tail = run("make", "test")
+    print(f"{OK if ok else BAD} test suite    {tail[:60]}")
+    failures += 0 if ok else 1
+
+    ok, tail = run("python3", "-c",
+                   "from tarrasque import seed; seed.build(); print('seeded')")
+    print(f"{OK if ok else BAD} seed data     {tail[:60]}")
+    failures += 0 if ok else 1
+
+    agent = any(
+        shutil.which(name) for name in ("claude", "cursor-agent", "aider", "codex")
+    )
+    print(f"{OK if agent else WARN} coding agent  "
+          f"{'' if agent else 'none on PATH — the reference runs cover you'}")
+
+    print()
+    if failures:
+        print(f"  {failures} blocking problem(s). Ask a facilitator.")
+        return 1
+    print("  ready. `make ticket TICKET=TAR-412` prints the first task.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

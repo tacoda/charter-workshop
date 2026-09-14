@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+"""Print the matrix: every captured run, every check, side by side.
+
+    bin/compare                  # the runs in runs/
+    bin/compare --reference      # the runs shipped with the repo
+
+This is the deliverable. Five columns and nine rows, from one machine, on a
+codebase nobody in the room wrote.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+
+ORDER = ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9"]
+MARK = {True: "  ✓  ", False: "  ✗  ", None: "  ?  "}
+
+
+def load(directory: Path) -> list[dict]:
+    cards = []
+    for path in sorted(directory.glob("*/scorecard.json")):
+        cards.append(json.loads(path.read_text(encoding="utf-8")))
+    return cards
+
+
+def render(cards: list[dict]) -> str:
+    if not cards:
+        return "  no runs captured yet — try `make capture RUN=00-baseline`"
+
+    names = [card.get("slug", "?") for card in cards]
+    width = max(12, max(len(name) for name in names) + 2)
+    rules = {
+        code: cards[0]["checks"][code]["rule"]
+        for code in ORDER
+        if code in cards[0]["checks"]
+    }
+
+    head = f"  {'check':<32}" + "".join(name.center(width) for name in names)
+    lines = [head, "  " + "-" * (len(head) - 2)]
+
+    for code in ORDER:
+        if code not in rules:
+            continue
+        row = f"  {code} {rules[code]:<29}"
+        for card in cards:
+            item = card["checks"].get(code, {})
+            row += MARK.get(item.get("pass")).center(width)
+        lines.append(row)
+
+    lines.append("  " + "-" * (len(head) - 2))
+    for label, key in (
+        ("decidable passed", "decidable_passed"),
+        ("files changed", "files_changed"),
+        ("lines added", "lines_added"),
+    ):
+        row = f"  {label:<32}"
+        for card in cards:
+            row += str(card.get(key, "—")).center(width)
+        lines.append(row)
+
+    lines.append("")
+    lines.append("  ✓ pass   ✗ fail   ? inferential — no predicate settles it")
+    return "\n".join(lines)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="bin/compare")
+    parser.add_argument("--reference", action="store_true",
+                        help="compare the runs shipped with the repo instead")
+    args = parser.parse_args()
+    directory = ROOT / ("runs/reference" if args.reference else "runs")
+    print(render(load(directory)))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

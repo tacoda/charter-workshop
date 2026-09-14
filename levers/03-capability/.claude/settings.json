@@ -1,0 +1,22 @@
+{
+  "$comment": [
+    "DRAFT. This is the list as first written, and `make grants` finds seven",
+    "accidental grants in it. Do not copy this file into a real repository.",
+    "Lever 04 ships the repaired version."
+  ],
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Bash(make:*)",
+      "Bash(python3:*)",
+      "Bash(git:*)",
+      "Read(**)",
+      "Edit(**)",
+      "Write(**)",
+      "Bash(pytest:*)",
+      "WebFetch"
+    ],
+    "ask": [],
+    "deny": []
+  }
+}

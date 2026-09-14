@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tarrasque"
+version = "2.4.0"
+description = "A play-session engine for tabletop campaigns"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6", "mypy>=1.11"]
+
+[tool.setuptools.packages.find]
+include = ["tarrasque*"]
+
+# ---------------------------------------------------------------- pytest --
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --no-header"
+python_files = ["test_*.py"]
+
+# ------------------------------------------------------------------ ruff --
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+src = ["."]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "C4", "RET", "ARG", "PL"]
+ignore = [
+    "PLR0913",  # handlers legitimately take several arguments
+    "PLR2004",  # magic values are readable in this domain
+]
+
+[tool.ruff.lint.per-file-ignores]
+# The 2021 random tables are frozen. They are linted for syntax errors only;
+# rewriting them to satisfy the modern rule set is out of scope for any ticket
+# that is not explicitly a migration. See docs/adr/0004-freeze-legacy.md.
+"tarrasque/legacy/*" = ["ALL"]
+"tests/*" = ["ARG", "PLR2004"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["tarrasque"]
+
+# ------------------------------------------------------------------ mypy --
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+files = ["tarrasque"]
+
+[[tool.mypy.overrides]]
+# Frozen, untyped, and excluded on purpose. See docs/adr/0004-freeze-legacy.md.
+module = "tarrasque.legacy.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+# The v1 handler surface predates the type discipline. New handlers are typed.
+module = "tarrasque.api.handlers"
+ignore_errors = true

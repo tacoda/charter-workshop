@@ -1,0 +1,18 @@
+{
+  "$comment": [
+    "Also a draft, and also here to be argued with. This declares a server",
+    "whose entire job is to run one deterministic predicate over some files.",
+    "Read section 5 of the Capability Ladder, then delete it: a bundled",
+    "script costs one line in a skill, and this costs a schema on every turn,",
+    "forever, in every session anyone opens in this repository.",
+    "",
+    "Deleting this file IS the exercise."
+  ],
+  "mcpServers": {
+    "charter": {
+      "command": "python3",
+      "args": ["charter/mcp_server.py"],
+      "$note": "one tool: check_files(files) -> {clean, problems}"
+    }
+  }
+}

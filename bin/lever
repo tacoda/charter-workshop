@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""Apply, revert, and inspect the charter levers.
+
+    bin/lever status          # what is installed right now
+    bin/lever apply 1         # land lever 1's artifacts
+    bin/lever apply 1 2 3     # several at once
+    bin/lever reset           # remove the whole charter
+    bin/lever show 3          # list what a lever would land, without landing it
+
+Every lever is a directory under `levers/`. Applying one copies its files
+into place. Nothing here is magic: `cp -r levers/03-capability/. .` does the
+same thing, and the workshop says so.
+"""
+
+from __future__ import annotations
+
+import argparse
+import shutil
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+LEVERS = ROOT / "levers"
+CHARTER = ["CLAUDE.md", ".claude", ".mcp.json"]
+
+
+def levers() -> dict[str, Path]:
+    return {
+        path.name.split("-", 1)[0]: path
+        for path in sorted(LEVERS.iterdir())
+        if path.is_dir()
+    }
+
+
+def files_in(lever: Path) -> list[Path]:
+    return sorted(item for item in lever.rglob("*") if item.is_file())
+
+
+def apply(number: str) -> None:
+    available = levers()
+    key = number.zfill(2)
+    if key not in available:
+        print(f"no lever {number}; have {', '.join(sorted(available))}")
+        raise SystemExit(2)
+    lever = available[key]
+    for source in files_in(lever):
+        destination = ROOT / source.relative_to(lever)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+        if destination.suffix in {".py", ".sh"}:
+            destination.chmod(0o755)
+        print(f"  + {destination.relative_to(ROOT)}")
+    print(f"lever {key} ({lever.name.split('-', 1)[1]}) applied")
+
+
+def reset() -> None:
+    for name in CHARTER:
+        target = ROOT / name
+        if target.is_dir():
+            shutil.rmtree(target)
+            print(f"  - {name}/")
+        elif target.exists():
+            target.unlink()
+            print(f"  - {name}")
+    print("charter removed; the repo is bare again")
+
+
+def status() -> None:
+    print("  charter state")
+    for name in CHARTER:
+        target = ROOT / name
+        if not target.exists():
+            print(f"    absent   {name}")
+        elif target.is_dir():
+            count = len([item for item in target.rglob("*") if item.is_file()])
+            print(f"    present  {name}/  ({count} files)")
+        else:
+            words = len(target.read_text(encoding="utf-8").split())
+            print(f"    present  {name}  ({words} words)")
+    print("\n  levers available")
+    for key, lever in levers().items():
+        title = lever.name.split("-", 1)[1].replace("-", " ")
+        print(f"    {key}  {title:<16} {len(files_in(lever))} files")
+
+
+def show(number: str) -> None:
+    key = number.zfill(2)
+    lever = levers().get(key)
+    if lever is None:
+        print(f"no lever {number}")
+        raise SystemExit(2)
+    for source in files_in(lever):
+        print(f"  {source.relative_to(lever)}")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="bin/lever")
+    parser.add_argument("action", choices=["status", "apply", "reset", "show"])
+    parser.add_argument("numbers", nargs="*")
+    args = parser.parse_args()
+
+    if args.action == "status":
+        status()
+    elif args.action == "reset":
+        reset()
+    elif args.action == "show":
+        show(args.numbers[0] if args.numbers else "1")
+    else:
+        for number in args.numbers or ["1"]:
+            apply(number)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+"""Audit what a permission list actually grants, not what you meant by it.
+
+    bin/grants                       # audit .claude/settings.json
+    bin/grants --file some.json
+
+A permission rule answers one question: may this string run? The question you
+had was different: is this work permitted? Every allowlist is a lossy
+translation between the two, and the loss is where accidental grants live.
+
+This walks the list and names the gap. It does not fix anything.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+
+#: Patterns whose wildcard reaches further than the author almost certainly meant.
+WIDE = [
+    (re.compile(r"^Bash\((?:make|just|npm run|pnpm|yarn|rake)\s*:\s*\*\)$"),
+     "every target in the task runner, including any added later"),
+    (re.compile(r"^Bash\((?:python|python3|node|ruby|perl|sh|bash|zsh)\s*:\s*\*\)$"),
+     "an interpreter takes `-c`, so this is an unrestricted shell"),
+    (re.compile(r"^Bash\(git\s*:\s*\*\)$"),
+     "includes push, reset --hard, clean -fdx, and config"),
+    (re.compile(r"^Bash\(.*\|\|.*\)|^Bash\(.*&&.*\)|^Bash\(.*;.*\)$"),
+     "a compound command; the matcher sees one string, the shell sees several"),
+    (re.compile(r"^Read\(\*\*?\)$|^Read\(//.*\)$"),
+     "reaches outside the repository"),
+    (re.compile(r"^Bash\(\s*\*\s*\)$|^Bash$"),
+     "every command there is"),
+    (re.compile(r"^(?:Write|Edit)\(\*\*?\)$"),
+     "writes anywhere, including the charter that is supposed to constrain this"),
+    (re.compile(r"^WebFetch(?:\(.*\*.*\))?$"),
+     "fetched content lands in the window next to your instructions"),
+]
+
+#: Things a repo like this one should be denying and usually is not.
+EXPECTED_DENIES = [
+    ("Read(./.env)", "the credential file"),
+    ("Read(./.env.*)", "every variant of it"),
+    ("Read(./secrets/**)", "anything filed under secrets"),
+    ("Bash(git push:*)", "publishing without a human"),
+    ("Bash(git commit --no-verify:*)", "committing around the gate"),
+    ("Bash(rm -rf:*)", "the one mistake with no undo"),
+]
+
+SELF_REACH = re.compile(r"^(?:Write|Edit|MultiEdit)\((?P<target>.*)\)$")
+
+
+def load(path: Path) -> dict:
+    if not path.exists():
+        print(f"  no permission list at {path.relative_to(ROOT)}")
+        print("  every tool the agent has is granted by default.")
+        raise SystemExit(0)
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="bin/grants")
+    parser.add_argument("--file", default=".claude/settings.json")
+    args = parser.parse_args()
+
+    path = ROOT / args.file
+    settings = load(path)
+    permissions = settings.get("permissions", {})
+    allow = permissions.get("allow", [])
+    ask = permissions.get("ask", [])
+    deny = permissions.get("deny", [])
+
+    print(f"  {path.relative_to(ROOT)}")
+    print(f"    allow {len(allow):>3}    ask {len(ask):>3}    deny {len(deny):>3}")
+    print(f"    default mode: {permissions.get('defaultMode', 'unset')}\n")
+
+    findings = 0
+
+    print("  1 · rules that reach further than they read\n")
+    for rule in allow + ask:
+        for pattern, why in WIDE:
+            if pattern.match(rule):
+                findings += 1
+                print(f"      {rule}")
+                print(f"        → {why}")
+    if not findings:
+        print("      none found\n")
+    else:
+        print()
+
+    print("  2 · denies this repository has not written down\n")
+    missing = [
+        (rule, why) for rule, why in EXPECTED_DENIES
+        if not any(rule.split("(")[0] in item and rule[-4:-1] in item for item in deny)
+        and rule not in deny
+    ]
+    for rule, why in missing:
+        findings += 1
+        print(f"      {rule:<34} {why}")
+    if not missing:
+        print("      none missing\n")
+    else:
+        print()
+
+    print("  3 · the enforcer inside its own blast radius\n")
+    writable_charter = [
+        rule for rule in allow
+        if (found := SELF_REACH.match(rule))
+        and (found.group("target").startswith(("**", "./**", ".claude"))
+             or found.group("target") in {"*", "./*"})
+    ]
+    if writable_charter:
+        findings += len(writable_charter)
+        for rule in writable_charter:
+            print(f"      {rule}")
+        print("        → the hook config is a file and the agent has an edit tool.")
+        print("          Anything the agent can edit is not a constraint on the")
+        print("          agent. Deny writes to .claude/, or accept that this list")
+        print("          is advice.\n")
+    else:
+        print("      .claude/ is not writable through an allow rule\n")
+
+    print("  4 · the floor\n")
+    floor = settings.get("sandbox") or settings.get("env", {}).get("SANDBOX")
+    if floor:
+        print(f"      declared: {floor}\n")
+    else:
+        print("      none declared. When the list is wrong — and it will be —")
+        print("      nothing underneath it holds. A container, a scratch clone,")
+        print("      or a machine with no production credential on it is the")
+        print("      floor. The list is not.\n")
+        findings += 1
+
+    print(f"  {findings} finding(s). A list with none is a list nobody has read.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

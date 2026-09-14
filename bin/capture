@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+"""Freeze a run: its diff, its scorecard, and the charter state it ran under.
+
+    bin/capture 00-baseline --ticket TAR-412
+    bin/capture 02-rules --ticket TAR-412 --reset
+
+`--reset` restores the tree to HEAD afterwards, so the next lever starts from
+the same ground. The captured diff is kept either way.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "bin"))
+
+import importlib.util  # noqa: E402
+
+spec = importlib.util.spec_from_file_location("scorer", ROOT / "bin" / "score")
+scorer = importlib.util.module_from_spec(spec)
+assert spec.loader is not None
+spec.loader.exec_module(scorer)
+
+CHARTER_PATHS = ["CLAUDE.md", ".claude", ".mcp.json"]
+
+
+def git(*args: str) -> str:
+    return subprocess.run(
+        ["git", *args], cwd=ROOT, capture_output=True, text=True, check=False
+    ).stdout
+
+
+def charter_state() -> dict:
+    """What of the charter existed at capture time. The independent variable."""
+    present = {}
+    for path in CHARTER_PATHS:
+        target = ROOT / path
+        if not target.exists():
+            present[path] = None
+        elif target.is_dir():
+            present[path] = sorted(
+                str(item.relative_to(ROOT))
+                for item in target.rglob("*")
+                if item.is_file()
+            )
+        else:
+            present[path] = len(target.read_text(encoding="utf-8").split())
+    return present
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="bin/capture")
+    parser.add_argument("slug", help="a run name, e.g. 00-baseline")
+    parser.add_argument("--ticket", default="TAR-412")
+    parser.add_argument("--reset", action="store_true",
+                        help="restore the tree to HEAD after capturing")
+    parser.add_argument("--no-verify", action="store_true")
+    args = parser.parse_args()
+
+    target = ROOT / "runs" / args.slug
+    target.mkdir(parents=True, exist_ok=True)
+
+    untracked = git("ls-files", "--others", "--exclude-standard").split()
+    if untracked:
+        subprocess.run(["git", "add", "-N", *untracked], cwd=ROOT, check=False)
+
+    (target / "diff.patch").write_text(git("diff", "HEAD"), encoding="utf-8")
+
+    card = scorer.score(args.ticket, run_verify=not args.no_verify)
+    card["slug"] = args.slug
+    card["charter"] = charter_state()
+    (target / "scorecard.json").write_text(json.dumps(card, indent=2), encoding="utf-8")
+
+    print(scorer.render(card))
+    print(f"\n  captured to runs/{args.slug}/")
+
+    if args.reset:
+        subprocess.run(["git", "reset", "-q"], cwd=ROOT, check=False)
+        subprocess.run(["git", "checkout", "--", "."], cwd=ROOT, check=False)
+        subprocess.run(
+            ["git", "clean", "-fdq", "tarrasque", "tests"], cwd=ROOT, check=False
+        )
+        print("  tree reset to HEAD")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

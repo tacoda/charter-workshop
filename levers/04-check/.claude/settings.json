@@ -1,0 +1,91 @@
+{
+  "$comment": [
+    "The repaired list. Every allow rule names a unit of work somebody",
+    "decided on — a make target — rather than a command string that only",
+    "approximates one. Adding a target is a reviewed change to the Makefile,",
+    "which is where that decision belongs."
+  ],
+  "permissions": {
+    "defaultMode": "default",
+
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./secrets/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.ssh/**)",
+      "Write(./.claude/**)",
+      "Edit(./.claude/**)",
+      "Write(./charter/**)",
+      "Edit(./charter/**)",
+      "Bash(git push:*)",
+      "Bash(git commit --no-verify:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git clean:*)",
+      "Bash(rm -rf:*)",
+      "Bash(curl:*)",
+      "Bash(pip install:*)"
+    ],
+
+    "ask": [
+      "Bash(git commit:*)",
+      "Bash(make setup:*)",
+      "Write(./tarrasque/legacy/**)",
+      "Edit(./tarrasque/legacy/**)",
+      "Edit(./tests/test_legacy_characterization.py)"
+    ],
+
+    "allow": [
+      "Bash(make test:*)",
+      "Bash(make lint:*)",
+      "Bash(make types:*)",
+      "Bash(make gate:*)",
+      "Bash(make verify:*)",
+      "Bash(make score:*)",
+      "Bash(make ticket:*)",
+      "Bash(make seed:*)",
+      "Bash(git diff:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Read(./tarrasque/**)",
+      "Read(./tests/**)",
+      "Read(./tickets/**)",
+      "Read(./docs/**)",
+      "Read(./charter/**)",
+      "Read(./CLAUDE.md)",
+      "Read(./Makefile)",
+      "Read(./pyproject.toml)",
+      "Edit(./tarrasque/domain/**)",
+      "Edit(./tarrasque/api/encounters.py)",
+      "Edit(./tarrasque/http.py)",
+      "Write(./tests/**)",
+      "Edit(./tests/**)"
+    ]
+  },
+
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/charter_gate.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/verify_reminder.py",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}

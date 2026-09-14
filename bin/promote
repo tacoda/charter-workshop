@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+"""The promotion report: which rules have earned the next rung, and which have not.
+
+    bin/promote
+
+A rule earns a mechanical rung only if it passes three tests:
+
+  consequential   being wrong costs something, and costs it silently
+  recurrent       it has been broken more than once, by different people
+  decidable       a machine can settle it
+
+The third kills most candidates. This report applies all three to the charter
+in this repository, using the captured runs as the evidence for the second.
+
+It stops at the charter's edge. Everything above that line is the next rung
+up, and naming it is as far as this workshop goes.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+
+RULES = {
+    "dice.seeded": {
+        "consequential": "a roll nobody can replay settles no argument, and the "
+                         "table finds out weeks later",
+        "decidable": True,
+        "mount": "hook + make gate",
+    },
+    "roll.provenance": {
+        "consequential": "a bare number on the wire is an assertion; the log "
+                         "stops being evidence",
+        "decidable": True,
+        "mount": "hook + make gate",
+    },
+    "log.append-only": {
+        "consequential": "history that can be edited is not history",
+        "decidable": True,
+        "mount": "hook + make gate",
+    },
+    "legacy.frozen": {
+        "consequential": "published transcripts stop reproducing",
+        "decidable": True,
+        "mount": "hook + make gate",
+    },
+    "authority.session-derived": {
+        "consequential": "one player acts for another's character and nobody "
+                         "notices until it matters",
+        "decidable": "shadow",
+        "mount": "hook catches the shadow; a reviewer holds the rest",
+    },
+    "authority.semantic": {
+        "consequential": "the control check is present and wrong, which reads "
+                         "exactly like present and right",
+        "decidable": False,
+        "mount": "a reviewer sub-agent, and a human who reads the PR",
+    },
+}
+
+LADDER = """
+  where this rule would go next, if it left the charter
+  ── the charter · what we built today ───────────────────────────
+     prose in CLAUDE.md                     the agent can ignore it
+     a path-scoped rule file                the agent can ignore it
+     a declared grant in settings.json      the agent cannot widen it
+     a hook                                 mechanical, and the agent
+                                            can edit the file it lives in
+     a reviewer sub-agent                   inferential, in the same window
+  ── above the charter · not this workshop ───────────────────────
+     a tool that refuses internally         reconfiguring the agent
+                                            does not reach it
+     a stage gate in the pipeline           runs after the loop, from the tree
+     a judge stage in the graph             inferential, outside the agent
+     CI over the whole repository           the last thing that is not the agent
+"""
+
+
+def evidence() -> dict[str, int]:
+    """How many captured runs each rule failed in. The recurrence test."""
+    counts: dict[str, int] = {}
+    for directory in (ROOT / "runs", ROOT / "runs" / "reference"):
+        for path in sorted(directory.glob("*/scorecard.json")):
+            card = json.loads(path.read_text(encoding="utf-8"))
+            for item in card.get("checks", {}).values():
+                if item.get("pass") is False:
+                    counts[item["rule"]] = counts.get(item["rule"], 0) + 1
+    return counts
+
+
+def main() -> int:
+    counts = evidence()
+    print("  the three tests, applied to this charter\n")
+    header = f"  {'rule':<28}{'conseq':<9}{'recur':<8}{'decidable':<12}verdict"
+    print(header)
+    print("  " + "-" * (len(header) - 2))
+
+    for rule, facts in RULES.items():
+        seen = counts.get(rule, 0)
+        recurrent = seen >= 2
+        decidable = facts["decidable"]
+        if decidable is True and recurrent:
+            verdict = "mechanical rung earned"
+        elif decidable is True:
+            verdict = f"decidable, seen {seen}× — needs recurrence"
+        elif decidable is False:
+            verdict = "prose + reviewer. No gate will ever hold it"
+        else:
+            verdict = "gate the shadow, train the rest"
+        print(
+            f"  {rule:<28}{'yes':<9}{str(seen) + '×':<8}"
+            f"{str(decidable):<12}{verdict}"
+        )
+
+    print("\n  what each rule is mounted on today\n")
+    for rule, facts in RULES.items():
+        print(f"    {rule:<28} {facts['mount']}")
+
+    print("\n  why each rule is here at all\n")
+    for rule, facts in RULES.items():
+        print(f"    {rule}")
+        print(f"      {facts['consequential']}")
+
+    print(LADDER)
+    print("  Everything below the line is a file in this repository and a commit")
+    print("  you can revert. Everything above it is somebody else's process, and")
+    print("  it is a different workshop. Write down which of your own rules has")
+    print("  earned the crossing, and stop there.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
