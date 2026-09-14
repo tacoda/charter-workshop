@@ -50,7 +50,7 @@ def main() -> int:
         found = shutil.which(tool) is not None
         print(f"{OK if found else WARN} {tool:<8} {'' if found else note}")
 
-    ok, tail = run("python3", "charter/check.py", "tarrasque/domain/dice.py")
+    ok, tail = run("python3", "tools/charter_check.py", "tarrasque/domain/dice.py")
     print(f"{OK if ok else BAD} charter gate  {'' if ok else tail}")
     failures += 0 if ok else 1
 

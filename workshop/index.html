@@ -2261,18 +2261,27 @@ nothing mechanical enforces it.</code></pre>
       </p>
 
       <figure class="code">
-        <figcaption><span>make promote</span><span class="tag warn">recurrence comes from your own captured runs</span></figcaption>
+        <figcaption><span>make promote</span><span class="tag warn">recurrence counts your own captured runs — one workshop is not enough</span></figcaption>
 <pre><code>  rule                        conseq   recur   decidable   verdict
   ---------------------------------------------------------------------
-  dice.seeded                 yes      2×      True        <span class="c-pass">mechanical rung earned</span>
-  roll.provenance             yes      2×      True        <span class="c-pass">mechanical rung earned</span>
-  log.append-only             yes      2×      True        <span class="c-pass">mechanical rung earned</span>
-  legacy.frozen               yes      0×      True        <span class="c-warn">decidable — needs recurrence</span>
-  authority.session-derived   yes      1×      shadow      <span class="c-warn">gate the shadow, train the rest</span>
+  dice.seeded                 yes      <span class="c-warn">1×</span>      True        <span class="c-warn">decidable, seen 1× —
+                                                            needs recurrence</span>
+  roll.provenance             yes      <span class="c-warn">1×</span>      True        <span class="c-warn">decidable — needs recurrence</span>
+  log.append-only             yes      <span class="c-warn">1×</span>      True        <span class="c-warn">decidable — needs recurrence</span>
+  legacy.frozen               yes      <span class="c-warn">1×</span>      True        <span class="c-warn">decidable — needs recurrence</span>
+  authority.session-derived   yes      1×      shadow      <span class="c-pass">gate the shadow,
+                                                            train the rest</span>
   authority.semantic          yes      1×      False       <span class="c-block">prose + reviewer. No gate
                                                             will ever hold it</span></code></pre>
       </figure>
 
+      <p>
+        <strong>Nothing in that table earned a promotion today, and that is the correct answer.</strong>
+        Every rule failed exactly once, in the bare run, and once is not recurrence. A workshop
+        produces one data point per rule; a year of your own captured runs produces the number that
+        decides. Which is the point: the report is not a verdict, it is a ledger you keep adding to,
+        and the honest reading of it after ninety minutes is "come back in a quarter".
+      </p>
       <p>
         Two judgement calls in that table are worth naming. A rule with a handful of blocks stays,
         because the metric is <em>expected damage</em>, not frequency — one unverifiable session
