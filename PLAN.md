@@ -1,4 +1,6 @@
-# Wrap It in a Charter — 90-minute workshop plan
+# The Only Variable — 90-minute workshop plan
+
+*Change nothing but the charter, and measure what moved.*
 
 **Venue:** AIDevCon (AI Native DevCon) · Context Engineering track
 **Format:** Workshop, hands-on, 90 minutes. 3-hour version available.
@@ -91,7 +93,7 @@ if the agent has something real to run:
 - `pyproject.toml` — packaged, with `ruff`, `mypy --strict` and `pytest` configured
 - `Makefile` — 24 named targets. The unit of intent, and what the permission
   allowlist points at instead of command strings
-- `tests/` — 148 tests, sub-second, domain layer at full coverage
+- `tests/` — 145 tests, sub-second, domain layer at full coverage
 - `make verify` — lint, types, tests and the charter gate, well under thirty seconds
 - **A zero-install floor**: if `ruff`/`mypy`/`pytest` are missing, every target
   degrades to a bundled standard-library equivalent. `make gate` is pure stdlib
@@ -193,7 +195,7 @@ anywhere above the charter.
 | 0:46–0:58 | **5 · what it can do** | The family test, four rungs, four attributes. `make lever N=3`, then `make grants` and fix one accidental grant by hand. Delete `.mcp.json`. |
 | 0:58–1:10 | **6 · what refuses it** | `make lever N=4`. Feel the hook refuse. Run C, plus the reviewer sub-agent to fill C9. Compare. |
 | 1:10–1:18 | **7 · the ceiling** | `make promote`. The two rungs above in one table, and we stop at the line. |
-| 1:18–1:26 | **8 · what we built** | Three sequence diagrams: one turn with the charter, one without, one with the rungs above. The Keystone map. |
+| 1:18–1:26 | **8 · what we built** | Three sequence diagrams: one turn with the charter, one without, one with the rungs above. The portability map. |
 | 1:26–1:30 | **9 · Monday** | `HITLIST.md`, the budget, deletion day, questions. |
 
 Every lab is the same four beats, which is what makes it a workshop rather than

@@ -25,7 +25,7 @@ with the talk *Why "Add a Rule" Is Usually Wrong*, and stands alone.
 ## Session
 
 **Session Title:**
-> Wrap It in a Charter: Ninety Minutes from Bare Repo to Governed Agent
+> The Only Variable: Change Nothing but the Charter, and Measure What Moved
 
 **Session Type:** Workshop (hands-on) — 90 minutes. A 3-hour version is available.
 
@@ -33,7 +33,7 @@ with the talk *Why "Add a Rule" Is Usually Wrong*, and stands alone.
 
 **Secondary Track:** The Agent Enablement Platform
 
-**Level:** Intermediate → Advanced
+**Level:** Intermediate
 
 **Description:**
 > Everyone tells you to write a `CLAUDE.md`. Nobody shows you what it buys, and the honest answer
@@ -77,8 +77,8 @@ with the talk *Why "Add a Rule" Is Usually Wrong*, and stands alone.
 > workshop.
 >
 > Everything is shown in Claude Code's primitives because a workshop has to pick one tool's file
-> names, and each one is mapped to its provider-agnostic Keystone equivalent so nobody leaves
-> thinking this is Claude-only. Bring Cursor or Codex if that is what you use; the differences are
+> names, and a closing section maps every lever onto Cursor, `AGENTS.md` and anything else, so
+> nobody leaves thinking this is Claude-only. Bring Cursor or Codex if that is what you use; the differences are
 > called out as they come up.
 >
 > The instrument is deliberately built so the result can come out against me, and I say so from

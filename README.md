@@ -1,4 +1,6 @@
-# Wrap It in a Charter
+# The Only Variable
+
+*Change nothing but the charter, and measure what moved.*
 
 A ninety-minute, hands-on workshop. You take an application nobody in the room
 wrote, wrap it in an agent charter one lever at a time, and **measure** what
@@ -17,7 +19,7 @@ puts on screen.
 
 ## Setup — about two minutes
 
-    git clone <this repo> && cd charter-workshop
+    git clone https://github.com/tacoda/charter-workshop.git && cd charter-workshop
     make doctor
 
 Python 3.11 or newer is the only hard requirement. `pytest`, `ruff` and `mypy`
@@ -51,7 +53,7 @@ It is deliberately three eras deep, because that is what a real retrofit meets:
 
     make serve      # run it on :8099
     make seed       # what is in the seed database
-    make test       # 141 tests, well under a second
+    make test       # 145 tests, well under a second
 
 ---
 

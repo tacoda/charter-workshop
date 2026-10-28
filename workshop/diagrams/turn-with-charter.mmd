@@ -1,0 +1,40 @@
+sequenceDiagram
+  autonumber
+  actor You as you
+  participant H as harness · agent loop
+  participant C as charter · repo files
+  participant M as model
+  participant FS as working tree
+
+  You->>H: /ticket TAR-412
+  Note over C,M: lever 3 · the command expands,<br/>with make ticket and git diff<br/>already run and pasted in
+
+  H->>C: read CLAUDE.md
+  Note over C,M: lever 1 · every turn, whatever<br/>the task. The era paragraph
+  H->>C: read .claude/rules/* for the touched globs
+  Note over C,M: lever 2 · path-scoped, so the<br/>testing rules stay out of<br/>context while editing domain
+
+  H->>C: load capability descriptions
+  Note over C,M: lever 3 · one line each for the<br/>skill and the sub-agent.<br/>The standing bill
+
+  H->>M: system prompt + charter + tool schemas + the ticket
+  M-->>H: Skill(add-endpoint)
+  H->>C: read SKILL.md body
+  Note over C,M: lever 3 · the sequence a rule<br/>cannot hold. Nine steps,<br/>three halt conditions
+
+  M-->>H: Edit(tarrasque/api/encounters.py)
+  H->>C: PreToolUse → charter_gate.py
+  Note over C,M: lever 4 · deterministic. The<br/>same predicate as make gate
+  C-->>H: exit 2 · dice.seeded, line 214
+  H->>M: the refusal, inside the turn
+  M-->>H: Edit again, through stream_for()
+  H->>C: PreToolUse → charter_gate.py
+  C-->>H: exit 0
+  H->>FS: the write lands
+
+  M-->>H: done
+  H->>C: Stop → verify_reminder.py
+  C-->>H: make verify, run over the tree
+  You->>H: run the charter-auditor
+  H->>C: read .claude/agents/charter-auditor.md
+  Note over C,M: lever 4 · inferential. No write<br/>tool, and a stated return shape

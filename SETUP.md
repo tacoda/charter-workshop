@@ -6,7 +6,7 @@ conference wifi.
 
 ## 1 · Clone and check
 
-    git clone <this repo>
+    git clone https://github.com/tacoda/charter-workshop.git
     cd charter-workshop
     make doctor
 

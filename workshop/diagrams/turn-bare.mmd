@@ -1,0 +1,19 @@
+sequenceDiagram
+  autonumber
+  actor You as you
+  participant H as harness · agent loop
+  participant R as repository
+  participant M as model
+  participant FS as working tree
+
+  You->>H: the ticket, pasted
+  H->>R: read whatever looks relevant
+  R-->>H: handlers.py, 1,100 lines of precedent
+  Note over R,M: the only charter present is<br/>the code itself, and it says<br/>random.randint is fine here
+  H->>M: system prompt + the ticket + what it read
+  M-->>H: Edit(tarrasque/api/handlers.py)
+  H->>FS: the write lands
+  M-->>H: done
+  You->>FS: make test
+  FS-->>You: green
+  Note over You,FS: the tests pass. The endpoint works.<br/>Four rules were broken, and nothing said so

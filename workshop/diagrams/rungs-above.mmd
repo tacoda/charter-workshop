@@ -1,0 +1,28 @@
+sequenceDiagram
+  autonumber
+  participant O as orchestrator
+  participant H as harness · one agent
+  participant C as charter · the repo
+  participant M as model
+  participant P as the predicate
+
+  Note over O,P: one implementation of the rule,<br/>four mount points
+
+  O->>H: a node of the pipeline: implement TAR-412
+  H->>C: CLAUDE.md, rules, capabilities
+  H->>M: the turn
+  M-->>H: a tool call
+  H->>P: charter hook · lever 4
+  P-->>H: verdict
+  Note over H,M: the agent could edit this file.<br/>Deny it, or accept that it is<br/>advice
+  H->>P: the tool refuses internally
+  P-->>H: verdict
+  Note over H,M: reconfiguring the agent<br/>does not reach this one
+  H-->>O: the branch
+  O->>P: stage gate · walks the tree, not the report
+  P-->>O: verdict
+  O->>M: judge stage · the inferential half, outside the agent
+  M-->>O: a structured verdict
+  O->>P: CI, over the whole repository
+  P-->>O: verdict
+  Note over O,C: everything from the stage gate<br/>down is somebody else's<br/>process, and a different workshop
